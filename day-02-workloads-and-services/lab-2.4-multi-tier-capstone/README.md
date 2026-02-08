@@ -85,7 +85,7 @@ kubectl get pods -l app=web
 
 ### Step 2: Create API Deployment manifest
 
-Create `api-deployment.yaml`:
+Create `api-deployment.yaml` starting from this skeleton:
 
 ```yaml
 apiVersion: apps/v1
@@ -96,22 +96,24 @@ metadata:
     app: api
     tier: backend
 spec:
-  replicas: 2  # Start with 2 API replicas
+  replicas: # TODO: Start with 2 API replicas
+  
   selector:
     matchLabels:
-      app: api
-      tier: backend
+      app: # TODO: Must match template labels
+      tier: # TODO: Must match template labels
+  
   template:
     metadata:
       labels:
-        app: api
-        tier: backend
+        app: # TODO: Same as selector (api)
+        tier: # TODO: Same as selector (backend)
     spec:
       containers:
       - name: httpbin
-        image: kennethreitz/httpbin:latest
+        image: # TODO: kennethreitz/httpbin:latest
         ports:
-        - containerPort: 80
+        - containerPort: # TODO: httpbin listens on 80
           name: http
         resources:
           requests:
@@ -120,7 +122,6 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "200m"
-        # Readiness probe: API must be Ready to receive traffic
         readinessProbe:
           httpGet:
             path: /get
@@ -129,11 +130,19 @@ spec:
           periodSeconds: 5
 ```
 
+**Fill in the TODOs:**
+
+1. **replicas:** `2` (2 API instances)
+2. **selector.matchLabels:** `app: api` and `tier: backend` (different from web!)
+3. **template.metadata.labels:** MUST match selector
+4. **image:** `kennethreitz/httpbin:latest`
+5. **containerPort:** `80` (httpbin default)
+
 **Key points:**
-- Labels: `app=api, tier=backend` (different from web)
-- 2 replicas for demonstration
-- Readiness probe on `/get` endpoint
-- Port 80 (httpbin default)
+- Labels `app=api, tier=backend` differentiate from web tier (`app=web, tier=frontend`)
+- Readiness probe on `/get` ensures Pod is ready before receiving traffic
+
+**Stuck after 10 minutes?** Complete example in `api-deployment.yaml` in this directory.
 
 ### Step 3: Apply API Deployment
 
@@ -198,7 +207,7 @@ pod "test-api" deleted
 
 ### Step 5: Create API Service manifest
 
-Create `api-service.yaml`:
+Create `api-service.yaml` starting from this skeleton:
 
 ```yaml
 apiVersion: v1
@@ -208,22 +217,36 @@ metadata:
   labels:
     app: api
 spec:
-  type: ClusterIP  # Internal only
+  type: # TODO: ClusterIP (internal only)
+  
   selector:
-    app: api
-    tier: backend  # Matches API Pods
+    app: # TODO: Must match API Pod labels
+    tier: # TODO: Must match API Pod labels
+  
   ports:
   - name: http
     protocol: TCP
-    port: 80        # Service port
-    targetPort: 80  # Container port
+    port: # TODO: Service port (80)
+    targetPort: # TODO: Pod port (80)
+  
   sessionAffinity: None
 ```
 
-**Key points:**
-- Selector matches API Pod labels: `app=api, tier=backend`
-- Port 80 → 80 (Service port → Pod port)
-- ClusterIP (internal only)
+**Fill in the TODOs:**
+
+1. **type:** `ClusterIP` (internal access only)
+2. **selector:** `app: api` and `tier: backend` (matches API Pods)
+   ```bash
+   # Verify labels
+   kubectl get pods -l app=api --show-labels
+   ```
+3. **port:** `80` (Service port)
+4. **targetPort:** `80` (httpbin container port)
+
+**Why these labels?**
+Service will select Pods with `app=api` AND `tier=backend` - only API Pods, not web Pods!
+
+**Stuck after 10 minutes?** Complete example in `api-service.yaml` in this directory.
 
 ### Step 6: Apply API Service
 
