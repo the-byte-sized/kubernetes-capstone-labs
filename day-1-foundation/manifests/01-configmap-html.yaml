@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-html
+  labels:
+    app: web
+    tier: frontend
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Task Tracker - Day 1</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                max-width: 800px;
+                margin: 50px auto;
+                padding: 20px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+            }
+            .container {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 10px;
+                padding: 30px;
+                box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            }
+            h1 {
+                margin-top: 0;
+                font-size: 2.5em;
+            }
+            .badge {
+                background: rgba(255, 255, 255, 0.2);
+                padding: 5px 15px;
+                border-radius: 20px;
+                display: inline-block;
+                margin: 10px 5px;
+                font-size: 0.9em;
+            }
+            .status {
+                background: #10b981;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 5px;
+                display: inline-block;
+                margin-top: 20px;
+                font-weight: bold;
+            }
+            ul {
+                list-style: none;
+                padding-left: 0;
+            }
+            li:before {
+                content: "✓ ";
+                margin-right: 10px;
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 Welcome to Task Tracker</h1>
+            <h2>Day 1: Foundation</h2>
+            
+            <div class="status">✅ Pod is Running</div>
+            
+            <h3>What we've learned:</h3>
+            <ul>
+                <li>Created a Pod (smallest Kubernetes unit)</li>
+                <li>Used ConfigMap to inject HTML content</li>
+                <li>Applied declarative manifests with kubectl</li>
+                <li>Verified desired state matches actual state</li>
+                <li>Used port-forward to access the application</li>
+            </ul>
+            
+            <h3>Architecture:</h3>
+            <div class="badge">Browser</div> →
+            <div class="badge">port-forward</div> →
+            <div class="badge">Pod: web</div> →
+            <div class="badge">nginx container</div>
+            
+            <hr style="margin: 30px 0; border: 1px solid rgba(255,255,255,0.2);">
+            
+            <p><strong>Next:</strong> Day 2 - Scaling with Deployments and Services</p>
+            <p style="font-size: 0.9em; opacity: 0.8;">
+                Served by nginx from ConfigMap | Kubernetes Lab Series
+            </p>
+        </div>
+    </body>
+    </html>
