@@ -299,6 +299,116 @@ minikube start --driver=docker --kubernetes-version=v1.35.0
 
 ---
 
+## 🜡 Issue 8: `kubectl apply` Always Shows "configured" (Not "unchanged")
+
+### Symptom
+```bash
+$ kubectl delete pod web
+$ kubectl apply -f manifests/02-pod-web.yaml
+pod/web created
+
+$ kubectl apply -f manifests/02-pod-web.yaml
+pod/web configured  # Expected "unchanged"
+
+$ kubectl apply -f manifests/02-pod-web.yaml
+pod/web configured  # Still "configured"
+```
+
+### Is This a Problem?
+
+**No.** This is **expected behavior** with **modern kubectl (v1.28+)** and especially **kubectl v1.35**.
+
+### Root Cause
+
+Starting with Kubernetes 1.22, **Server-Side Apply (SSA)** became the default. SSA:
+- Tracks field ownership more granularly
+- Updates metadata annotations on every apply
+- Reports `configured` when any managed field is touched (even if no spec changes)
+
+**Result:** `configured` is now more common than `unchanged`, even with identical manifests.
+
+**This is especially true in kubectl v1.35.0** (December 2024 release), which further refines SSA behavior.
+
+### Verify It's Not a Real Change
+
+```bash
+# 1. Apply manifest
+kubectl apply -f manifests/02-pod-web.yaml
+
+# 2. Get current Pod spec hash
+BEFORE=$(kubectl get pod web -o jsonpath='{.spec}' | sha256sum)
+
+# 3. Apply again
+kubectl apply -f manifests/02-pod-web.yaml
+# Output: pod/web configured
+
+# 4. Get Pod spec hash again
+AFTER=$(kubectl get pod web -o jsonpath='{.spec}' | sha256sum)
+
+# 5. Compare
+echo "Before: $BEFORE"
+echo "After:  $AFTER"
+# They should be IDENTICAL
+```
+
+### Understanding the Messages
+
+| Message | Meaning | Is it OK? |
+|---------|---------|-----------|
+| `created` | Resource was created | ✅ Yes |
+| `unchanged` | Zero changes detected (rare with SSA) | ✅ Yes |
+| `configured` | Manifest applied (may update metadata) | ✅ Yes |
+| `error` | Failed to apply | ❌ No (investigate) |
+
+### Verify True Idempotency
+
+```bash
+# Count Pods before
+kubectl get pods | grep web | wc -l
+# Output: 1
+
+# Apply again
+kubectl apply -f manifests/
+# Output: pod/web configured
+
+# Count Pods after
+kubectl get pods | grep web | wc -l
+# Output: 1 (not 2!) ← This proves idempotency
+
+# Check Pod hasn't changed functionally
+kubectl get pod web -o jsonpath='{.spec.containers[0].image}'
+# Output: nginx:1.25-alpine (same as manifest)
+```
+
+### Force "unchanged" Behavior (Optional)
+
+If you want to see `unchanged` more often, use **client-side apply**:
+
+```bash
+kubectl apply -f manifests/02-pod-web.yaml --server-side=false
+kubectl apply -f manifests/02-pod-web.yaml --server-side=false
+# Output: pod/web unchanged (more likely)
+```
+
+**Note:** Client-side apply is the old default (pre-1.22) and may be deprecated in future Kubernetes versions.
+
+### Bottom Line
+
+- ✅ `configured` does **NOT** mean "something broke"
+- ✅ Idempotency is about **outcome** (no duplicates), not the message
+- ✅ Both `unchanged` and `configured` are success states
+- ❌ Only `error` indicates a real problem
+
+**Modern best practice:** Ignore `unchanged` vs `configured` and focus on:
+1. Did the resource reach desired state? (`kubectl get`)
+2. Is the application healthy? (`kubectl logs`, `curl`)
+
+**References:**
+- [Kubernetes Server-Side Apply](https://kubernetes.io/docs/reference/using-api/server-side-apply/)
+- [kubectl v1.35 Release Notes](https://kubernetes.io/blog/2024/12/17/kubernetes-v1-35-release/)
+
+---
+
 ## 🔍 General Troubleshooting Method
 
 ### Step 1: Check Resource Status
@@ -394,8 +504,8 @@ minikube start --driver=docker --kubernetes-version=v1.35.0
      kubectl get pods
      kubectl describe pod web
      kubectl logs web
+     kubectl version --client -o yaml
      minikube version
-     kubectl version --client
      ```
 
 ---
