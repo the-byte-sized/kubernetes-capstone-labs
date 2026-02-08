@@ -2,7 +2,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: web-service
-  namespace: task-tracker
   labels:
     app: web
     component: service
@@ -34,13 +33,13 @@ spec:
 # 3. Adds Ready Pod IPs to Endpoints list
 # 4. kube-proxy on each node configures iptables/ipvs rules:
 #    - Traffic to 10.96.123.45:80 → load-balanced to Pod IPs:80
-# 5. CoreDNS creates record: web-service.task-tracker.svc.cluster.local → 10.96.123.45
+# 5. CoreDNS creates record: web-service.default.svc.cluster.local → 10.96.123.45
 
 # DNS NAMES (all resolve to same ClusterIP):
 # - web-service                                (short, same namespace)
-# - web-service.task-tracker                   (with namespace)
-# - web-service.task-tracker.svc               (with namespace + svc)
-# - web-service.task-tracker.svc.cluster.local (FQDN)
+# - web-service.default                        (with namespace)
+# - web-service.default.svc                    (with namespace + svc)
+# - web-service.default.svc.cluster.local      (FQDN)
 
 # TRY THIS:
 # 1. Apply: kubectl apply -f web-service.yaml

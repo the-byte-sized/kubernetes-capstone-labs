@@ -2,7 +2,6 @@ apiVersion: apps/v1
 kind: ReplicaSet
 metadata:
   name: web-replicaset
-  namespace: task-tracker
   labels:
     app: web
     component: replicaset
