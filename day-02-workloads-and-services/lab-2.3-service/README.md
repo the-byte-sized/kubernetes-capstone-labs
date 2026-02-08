@@ -107,7 +107,7 @@ kubectl describe service web-service
 **Expected output:**
 ```
 Name:              web-service
-Namespace:         task-tracker
+Namespace:         default
 Labels:            app=web
 Selector:          app=web,tier=frontend
 Type:              ClusterIP
@@ -159,7 +159,7 @@ kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup w
 Server:         10.96.0.10
 Address:        10.96.0.10:53
 
-Name:   web-service.task-tracker.svc.cluster.local
+Name:   web-service.default.svc.cluster.local
 Address: 10.96.123.45  # Service ClusterIP
 
 pod "test-dns" deleted
@@ -167,12 +167,12 @@ pod "test-dns" deleted
 
 **Try short name (same namespace):**
 ```bash
-kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup web-service.task-tracker
+kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup web-service
 ```
 
 **Try FQDN:**
 ```bash
-kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup web-service.task-tracker.svc.cluster.local
+kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup web-service.default.svc.cluster.local
 ```
 
 All should resolve to the **same ClusterIP** (10.96.123.45).

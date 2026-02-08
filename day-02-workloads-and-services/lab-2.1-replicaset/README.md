@@ -15,14 +15,12 @@ Create a ReplicaSet that maintains **3 replicas** of the web Pod, demonstrating:
 
 - ✅ Day 1 completed (Pod basics)
 - ✅ Minikube cluster running
-- ✅ Namespace `task-tracker` exists
 - ✅ Theory: Lezione 2 - Riconciliazione e control loop
 
 **Verify environment:**
 ```bash
 minikube status
 kubectl config get-contexts
-kubectl config set-context --current --namespace=task-tracker
 ```
 
 ---
@@ -156,7 +154,7 @@ kubectl describe replicaset web-replicaset
 **Sample output:**
 ```
 Name:           web-replicaset
-Namespace:      task-tracker
+Namespace:      default
 Selector:       app=web,tier=frontend
 Labels:         app=web
 Replicas:       3 current / 3 desired
