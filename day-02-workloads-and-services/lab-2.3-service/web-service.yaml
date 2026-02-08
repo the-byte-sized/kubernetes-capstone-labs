@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+  namespace: task-tracker
+  labels:
+    app: web
+    component: service
+spec:
+  # TYPE: ClusterIP = internal-only stable IP
+  # Other types: NodePort (exposes on node IP), LoadBalancer (cloud LB)
+  type: ClusterIP
+
+  # SELECTOR: which Pods does this Service route to?
+  # Must match labels on Pods (from Deployment template)
+  selector:
+    app: web
+    tier: frontend
+
+  # PORTS: mapping from Service port to Pod port
+  ports:
+  - name: http        # Friendly name for this port
+    protocol: TCP
+    port: 80          # Port exposed by Service (clients connect here)
+    targetPort: 80    # Port on the Pod (where container listens)
+
+  # SESSION AFFINITY: None = load balance across Pods
+  # ClientIP = same client goes to same Pod (sticky sessions)
+  sessionAffinity: None
+
+# HOW IT WORKS:
+# 1. Service gets a stable ClusterIP (e.g., 10.96.123.45)
+# 2. Kubernetes watches Pods matching selector labels
+# 3. Adds Ready Pod IPs to Endpoints list
+# 4. kube-proxy on each node configures iptables/ipvs rules:
+#    - Traffic to 10.96.123.45:80 → load-balanced to Pod IPs:80
+# 5. CoreDNS creates record: web-service.task-tracker.svc.cluster.local → 10.96.123.45
+
+# DNS NAMES (all resolve to same ClusterIP):
+# - web-service                                (short, same namespace)
+# - web-service.task-tracker                   (with namespace)
+# - web-service.task-tracker.svc               (with namespace + svc)
+# - web-service.task-tracker.svc.cluster.local (FQDN)
+
+# TRY THIS:
+# 1. Apply: kubectl apply -f web-service.yaml
+# 2. Get ClusterIP: kubectl get service web-service
+# 3. Check Endpoints: kubectl get endpoints web-service
+# 4. Test DNS: kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup web-service
+# 5. Test connectivity: kubectl run test-curl --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- curl http://web-service
+# 6. Port-forward: kubectl port-forward service/web-service 8080:80
+# 7. Access: curl http://localhost:8080
