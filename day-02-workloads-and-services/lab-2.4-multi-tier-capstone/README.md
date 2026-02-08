@@ -18,16 +18,26 @@ Build a **multi-tier application** where the web component communicates with an 
 - ✅ Lab 2.3 completed (Service basics)
 - ✅ Web Deployment with 3 replicas running
 - ✅ `web-service` ClusterIP Service working
+- ✅ **Namespace `task-tracker` active** (all labs use this namespace)
 - ✅ Theory: Lezione 2 - Service discovery, DNS interno, architettura multi-tier
 
 **Verify current state:**
 ```bash
+# Check namespace
+kubectl config get-contexts
+kubectl config current-context
+
+# Verify you're in task-tracker namespace
+kubectl config set-context --current --namespace=task-tracker
+
+# Check existing resources
 kubectl get deployment web-deployment
 kubectl get service web-service
 kubectl get pods -l app=web
 ```
 
 **Expected:** 
+- Current namespace: `task-tracker`
 - Deployment `web-deployment` with 3/3 Ready
 - Service `web-service` with ClusterIP
 - 3 Pods Running
@@ -46,6 +56,8 @@ kubectl get pods -l app=web
     ┌──────▼───────┐
     │ web-service  │ (ClusterIP)
     └──────────────┘
+
+Namespace: task-tracker
 ```
 
 ### **Target state (Lab 2.4):**
@@ -59,10 +71,12 @@ kubectl get pods -l app=web
     │ web-service  │                  │  api-service   │
     └──────────────┘                  └────────────────┘
      (ClusterIP)                       (ClusterIP)
+
+Namespace: task-tracker (both tiers in same namespace)
 ```
 
 **Traffic flow:**
-1. Web Pod makes HTTP request to `http://api-service`
+1. Web Pod makes HTTP request to `http://api-service` (short name, same namespace)
 2. Kubernetes DNS resolves `api-service` → ClusterIP
 3. ClusterIP routes to one of API Pod IPs (load-balanced)
 4. API Pod processes request and responds
@@ -92,7 +106,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api-deployment
-  namespace: task-tracker
+  namespace: task-tracker  # SAME namespace as web
   labels:
     app: api
     tier: backend
@@ -131,6 +145,7 @@ spec:
 ```
 
 **Key points:**
+- **Namespace**: `task-tracker` (explicitly set, same as web)
 - Labels: `app=api, tier=backend` (different from web)
 - 2 replicas for demonstration
 - Readiness probe on `/get` endpoint
@@ -139,6 +154,10 @@ spec:
 ### Step 3: Apply API Deployment
 
 ```bash
+# Ensure you're in the correct namespace
+kubectl config set-context --current --namespace=task-tracker
+
+# Apply manifest
 kubectl apply -f api-deployment.yaml
 ```
 
@@ -177,10 +196,9 @@ api-deployment-7c8f9d5b6f-def34   1/1     Running   0          40s   10.244.0.11
 Before creating the Service, verify API works:
 
 ```bash
+# Replace 10.244.0.10 with actual Pod IP from Step 3
 kubectl run test-api --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- curl http://10.244.0.10/get
 ```
-
-**Replace `10.244.0.10` with actual Pod IP from Step 3.**
 
 **Expected output (JSON from httpbin):**
 ```json
@@ -207,7 +225,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: api-service
-  namespace: task-tracker
+  namespace: task-tracker  # SAME namespace as API Pods
   labels:
     app: api
 spec:
@@ -224,6 +242,7 @@ spec:
 ```
 
 **Key points:**
+- **Namespace**: `task-tracker` (must match Deployment)
 - Selector matches API Pod labels: `app=api, tier=backend`
 - Port 80 → 80 (Service port → Pod port)
 - ClusterIP (internal only)
@@ -268,6 +287,7 @@ api-service   10.244.0.10:80,10.244.0.11:80  30s
 **Now test using Service name instead of IP:**
 
 ```bash
+# Using short name (works because we're in same namespace: task-tracker)
 kubectl run test-api-dns --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- curl http://api-service/get
 ```
 
@@ -277,7 +297,7 @@ kubectl run test-api-dns --image=curlimages/curl:8.11.1 --rm -it --restart=Never
   "args": {}, 
   "headers": {
     "Accept": "*/*", 
-    "Host": "api-service"
+    "Host": "api-service"  # <-- Notice: Service name, not IP!
   }, 
   "origin": "10.244.0.X", 
   "url": "http://api-service/get"
@@ -308,35 +328,13 @@ pod "test-dns" deleted
 
 **Key observation:** DNS resolves `api-service` → ClusterIP (10.96.234.56).
 
-### Step 9: Update web to call API (optional - advanced)
+**DNS naming in same namespace:**
+- Short name: `api-service` (works because test Pod is in `task-tracker`)
+- FQDN: `api-service.task-tracker.svc.cluster.local`
 
-**This step is OPTIONAL**. By default, nginx serves static content. To demonstrate web → API, you can:
+### Step 9: Test cross-tier communication (web → API)
 
-**Option A: Use port-forward to simulate web calling API**
-
-From your machine:
-```bash
-# Terminal 1: Forward web service
-kubectl port-forward service/web-service 8080:80
-
-# Terminal 2: Forward API service
-kubectl port-forward service/api-service 8081:80
-
-# Terminal 3: Test
-curl http://localhost:8080  # Web (nginx)
-curl http://localhost:8081/get  # API (httpbin)
-```
-
-**Option B: Deploy a custom web image that calls API**
-
-For a real demonstration, you would need a web app that makes backend calls. Example:
-- Build a simple web app that calls `http://api-service/get` on page load
-- Update `web-deployment.yaml` with the new image
-- This is beyond today's scope but shows the pattern
-
-**Option C: Manual test from web Pod**
-
-Exec into a web Pod and call API:
+**Exec into a web Pod and call API:**
 
 ```bash
 # Get a web Pod name
@@ -345,10 +343,10 @@ WEB_POD=$(kubectl get pods -l app=web -o jsonpath='{.items[0].metadata.name}')
 # Exec into it
 kubectl exec -it $WEB_POD -- /bin/sh
 
-# Inside the Pod, install curl (Alpine)
+# Inside the Pod, install curl (Alpine Linux)
 apk add --no-cache curl
 
-# Call API via Service name
+# Call API via Service name (SHORT NAME works - same namespace!)
 curl http://api-service/get
 
 # Exit
@@ -357,7 +355,7 @@ exit
 
 **Expected:** JSON response from API.
 
-**Key observation:** Web Pod can reach API using just the Service name (`api-service`), not an IP!
+**Key observation:** Web Pod can reach API using just the Service name (`api-service`), not an IP, because **both are in the same namespace (`task-tracker`)**.
 
 ### Step 10: Observe load balancing across API Pods
 
@@ -441,6 +439,11 @@ kubectl get endpoints api-service
 
 **Pass criteria:**
 
+- [ ] **Namespace correct:** All resources in `task-tracker` namespace
+  ```bash
+  kubectl get all -n task-tracker | grep api
+  ```
+
 - [ ] `kubectl get deployment api-deployment` shows `2/2 READY`
 - [ ] `kubectl get service api-service` shows `TYPE=ClusterIP` with stable IP
 - [ ] `kubectl get endpoints api-service` shows 2 Pod IPs matching `kubectl get pods -l app=api -o wide`
@@ -469,6 +472,11 @@ Communication:
 - Via Service names (DNS), not IPs
 - ClusterIP for internal communication
 - Each tier has own Deployment + Service
+
+Namespace isolation:
+- All components in SAME namespace: task-tracker
+- Short names work: "api-service" (not "api-service.task-tracker")
+- If components were in DIFFERENT namespaces, need FQDN
 ```
 
 ### **Service discovery via DNS**
@@ -478,13 +486,29 @@ Communication:
 API_URL: "http://10.244.0.10"  # BAD - ephemeral!
 
 # Use Service name:
-API_URL: "http://api-service"  # GOOD - stable, load-balanced
+API_URL: "http://api-service"  # GOOD - stable, load-balanced, works in same namespace
 ```
 
 **DNS resolution:**
-- Short name (same namespace): `api-service`
-- FQDN: `api-service.task-tracker.svc.cluster.local`
+- Short name (same namespace): `api-service` ✅
+- FQDN: `api-service.task-tracker.svc.cluster.local` ✅
 - Both resolve to Service ClusterIP
+
+### **Namespace and DNS scoping**
+
+**Important:** DNS short names only work **within the same namespace**.
+
+```bash
+# From Pod in task-tracker namespace:
+curl http://api-service         # ✅ Works (short name)
+curl http://api-service.task-tracker  # ✅ Works (with namespace)
+
+# From Pod in different namespace (e.g., default):
+curl http://api-service         # ❌ FAILS (not found)
+curl http://api-service.task-tracker.svc.cluster.local  # ✅ Works (FQDN)
+```
+
+**Our lab:** All components in `task-tracker` → short names work everywhere.
 
 ### **Label-based composition**
 
@@ -550,6 +574,7 @@ From **Lezione 2**:
 | Readiness probe impatta traffico | API readinessProbe → only Ready Pods get traffic |
 | Auto-riparazione workload | Delete API Pod → Deployment recreates → Endpoints update |
 | Scalabilità indipendente | Scale web (3→5) and API (2→4) separately |
+| Namespace come contesto | All in `task-tracker` → short names work |
 
 ---
 
@@ -560,6 +585,7 @@ You now have:
 ✅ **Multi-tier application:**
 - Web tier: 3 Pods (nginx)
 - API tier: 2 Pods (httpbin)
+- **Both in `task-tracker` namespace**
 
 ✅ **Stable networking:**
 - `web-service` ClusterIP → 3 web Pods
@@ -567,7 +593,7 @@ You now have:
 - DNS resolution working for both Services
 
 ✅ **Service-to-service communication:**
-- Web can call API via `http://api-service`
+- Web can call API via `http://api-service` (short name)
 - API responds with JSON
 
 ✅ **Resilience demonstrated:**
@@ -577,7 +603,7 @@ You now have:
 
 ✅ **Skills mastered:**
 - Created multi-component application
-- Used DNS for service discovery
+- Used DNS for service discovery (understanding namespace scoping)
 - Verified Endpoint management
 - Observed load balancing and resilience
 
@@ -589,26 +615,34 @@ You now have:
 
 **Only attempt if time permits:**
 
-### **Bonus 1: Add DB tier (preview Day 4)**
+### **Bonus 1: Test cross-namespace DNS (advanced)**
+
+Create a test Pod in `default` namespace and try to reach API:
+
+```bash
+# Create test Pod in default namespace
+kubectl run test-cross-ns -n default --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- sh
+
+# Inside Pod:
+curl http://api-service  # FAILS - different namespace!
+curl http://api-service.task-tracker.svc.cluster.local  # WORKS - FQDN
+```
+
+**Learning:** Short names only work within same namespace.
+
+### **Bonus 2: Add DB tier (preview Day 4)**
 
 Deploy a Postgres Pod + Service:
 - Deployment: `postgres:15-alpine`
 - Service: `db-service`
 - Test: API connects to `db-service` (via env var)
 
-### **Bonus 2: Observability**
+### **Bonus 3: Observability**
 
 Add logging to see request flow:
 - Check nginx access logs: `kubectl logs -l app=web --tail=20`
 - Check httpbin logs: `kubectl logs -l app=api --tail=20`
 - Correlate request IDs
-
-### **Bonus 3: Namespace isolation**
-
-Deploy a second instance in namespace `task-tracker-dev`:
-- Same manifests, different namespace
-- Observe DNS: `api-service.task-tracker` vs `api-service.task-tracker-dev`
-- Test cross-namespace (should fail unless explicitly configured)
 
 ---
 
@@ -618,15 +652,16 @@ Deploy a second instance in namespace `task-tracker-dev`:
 - [Service](https://kubernetes.io/docs/concepts/services-networking/service/)
 - [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
 - [Connecting Applications with Services](https://kubernetes.io/docs/tutorials/services/connect-applications-service/)
+- [Namespaces](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/)
 
 ### **KCNA Alignment:**
-- **Kubernetes Fundamentals (46%)**: Service discovery, multi-tier workloads
-- **Cloud Native Architecture (16%)**: Microservices, loose coupling, service mesh concepts
+- **Kubernetes Fundamentals (46%)**: Service discovery, DNS, multi-tier workloads
+- **Cloud Native Architecture (16%)**: Microservices, loose coupling, namespace isolation
 - **Container Orchestration (22%)**: Deployment strategies, scaling
 
 ### **Related:**
 - httpbin docs: https://httpbin.org/
-- Lezione 2: Sezione "Networking di base" + "Service discovery"
+- Lezione 2: Sezione "Networking di base" + "Service discovery" + "Namespace come contesto"
 
 ---
 

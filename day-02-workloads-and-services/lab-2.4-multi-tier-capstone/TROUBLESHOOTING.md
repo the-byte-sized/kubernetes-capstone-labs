@@ -4,6 +4,54 @@
 
 This guide covers the most frequent problems encountered in Lab 2.4 (multi-tier capstone).
 
+**Important:** All resources must be in the **`task-tracker` namespace**. Many issues arise from namespace mismatches.
+
+---
+
+## Issue 0: Wrong namespace (most common!)
+
+### **Symptoms:**
+
+```bash
+kubectl get pods
+# No resources found in default namespace.
+```
+
+But resources exist:
+```bash
+kubectl get pods -n task-tracker
+# Shows web and API Pods
+```
+
+### **Diagnosis:**
+
+Check current namespace:
+```bash
+kubectl config get-contexts
+```
+
+Look for `*` (current context) and check NAMESPACE column.
+
+### **Fix:**
+
+```bash
+# Set namespace for current context
+kubectl config set-context --current --namespace=task-tracker
+
+# Verify
+kubectl config get-contexts
+# Should show: * ... task-tracker
+
+# Now commands work without -n flag
+kubectl get pods
+kubectl get services
+```
+
+**Prevention:** Always verify namespace before starting:
+```bash
+kubectl config set-context --current --namespace=task-tracker
+```
+
 ---
 
 ## Issue 1: API Deployment Pods not starting (Pending)
@@ -113,7 +161,8 @@ kubectl create secret docker-registry dockerhub-secret \
   --docker-server=docker.io \
   --docker-username=YOUR_USERNAME \
   --docker-password=YOUR_PASSWORD \
-  --docker-email=YOUR_EMAIL
+  --docker-email=YOUR_EMAIL \
+  -n task-tracker
 
 # Add to api-deployment.yaml:
 spec:
@@ -249,20 +298,27 @@ kubectl apply -f api-deployment.yaml
 **Cause 3: Wrong namespace**
 
 ```bash
-# Service in 'task-tracker', but checking 'default'
-kubectl get endpoints api-service  # Shows <none>
+# Service in 'task-tracker', but Pods in 'default'
+kubectl get pods -l app=api  # Shows Pods (in default)
+kubectl get endpoints api-service  # Shows <none> (Service in task-tracker)
 
-# But actually:
-kubectl get endpoints api-service -n task-tracker  # Shows IPs
+# Solution: Ensure BOTH in task-tracker
+kubectl get pods -l app=api -n task-tracker
+kubectl get service api-service -n task-tracker
 ```
 
 **Fix:**
 ```bash
-# Always specify namespace or set context
+# Delete resources in wrong namespace
+kubectl delete deployment api-deployment -n default
+kubectl delete service api-service -n default
+
+# Set correct namespace
 kubectl config set-context --current --namespace=task-tracker
 
-# Or use -n flag
-kubectl get endpoints api-service -n task-tracker
+# Reapply manifests (they have namespace: task-tracker)
+kubectl apply -f api-deployment.yaml
+kubectl apply -f api-service.yaml
 ```
 
 ---
@@ -282,9 +338,9 @@ nslookup: can't resolve 'api-service'
 
 ### **Diagnosis:**
 
-Check Service exists:
+Check Service exists **in correct namespace**:
 ```bash
-kubectl get service api-service
+kubectl get service api-service -n task-tracker
 ```
 
 Check CoreDNS:
@@ -297,7 +353,7 @@ kubectl get pods -n kube-system -l k8s-app=kube-dns
 **Cause 1: Service doesn't exist**
 
 ```bash
-kubectl get service api-service
+kubectl get service api-service -n task-tracker
 # Error from server (NotFound): services "api-service" not found
 ```
 
@@ -312,21 +368,23 @@ kubectl get service api-service
 
 **Cause 2: Wrong namespace in DNS query**
 
-DNS works per-namespace. If testing from `default` namespace:
+**CRITICAL:** DNS short names only work **within the same namespace**.
 
 ```bash
-# Short name only works within same namespace
+# Test Pod in 'default', Service in 'task-tracker'
 kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service
-# FAILS if test Pod in 'default' but Service in 'task-tracker'
+# FAILS - different namespace!
 ```
 
 **Fix:**
+
 ```bash
-# Option A: Use FQDN
+# Option A: Use FQDN (works from any namespace)
 kubectl run test-dns --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service.task-tracker.svc.cluster.local
 
-# Option B: Create test Pod in same namespace
+# Option B: Create test Pod in SAME namespace as Service
 kubectl run test-dns -n task-tracker --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service
+# Works! (both in task-tracker)
 ```
 
 **Cause 3: CoreDNS not running**
@@ -414,19 +472,30 @@ ports:
   targetPort: 80  # Match container port
 ```
 
-**Cause 4: Network policy blocking traffic (if NetworkPolicy enabled)**
+**Cause 4: Web and API in different namespaces**
 
-Not common in basic Minikube, but possible:
+If web is in `task-tracker` but API is in `default`:
 
 ```bash
-kubectl get networkpolicies
-# If any exist, they may block traffic
+# From web Pod:
+curl http://api-service  # FAILS - different namespace
+
+# Need FQDN:
+curl http://api-service.default.svc.cluster.local  # Works if API in default
 ```
 
 **Fix:**
 ```bash
-# Temporarily remove NetworkPolicies for testing
-kubectl delete networkpolicy --all
+# Ensure BOTH in task-tracker
+kubectl get all -n task-tracker
+
+# If API in wrong namespace, delete and recreate
+kubectl delete -f api-deployment.yaml -n default
+kubectl delete -f api-service.yaml -n default
+
+kubectl config set-context --current --namespace=task-tracker
+kubectl apply -f api-deployment.yaml
+kubectl apply -f api-service.yaml
 ```
 
 ---
@@ -544,6 +613,15 @@ kubectl logs -l app=api --tail=20
 
 **For any Lab 2.4 issue, follow this sequence:**
 
+### **0. Verify namespace (ALWAYS FIRST!):**
+```bash
+kubectl config get-contexts | grep '*'
+# Should show: task-tracker
+
+# If not:
+kubectl config set-context --current --namespace=task-tracker
+```
+
 ### **1. Check Deployment:**
 ```bash
 kubectl get deployment api-deployment
@@ -603,8 +681,11 @@ kubectl get events -n task-tracker --sort-by='.lastTimestamp' | tail -20
 ## 📋 Quick Reference Commands
 
 ```bash
+# ALWAYS set namespace first
+kubectl config set-context --current --namespace=task-tracker
+
 # View all capstone resources
-kubectl get all -n task-tracker
+kubectl get all
 
 # Restart API Deployment (if needed)
 kubectl rollout restart deployment api-deployment
@@ -620,13 +701,16 @@ kubectl apply -f api-service.yaml
 kubectl delete pod <pod-name> --force --grace-period=0
 
 # Check resource usage
-kubectl top pods -n task-tracker
+kubectl top pods
 kubectl top node
 
 # Describe everything
 kubectl describe deployment api-deployment
 kubectl describe service api-service
 kubectl describe pod -l app=api
+
+# Check which namespace you're in
+kubectl config get-contexts | grep '*'
 ```
 
 ---
@@ -636,6 +720,9 @@ kubectl describe pod -l app=api
 If nothing works, reset lab:
 
 ```bash
+# Ensure correct namespace
+kubectl config set-context --current --namespace=task-tracker
+
 # Delete API components
 kubectl delete -f api-deployment.yaml
 kubectl delete -f api-service.yaml
@@ -663,7 +750,7 @@ minikube start --memory=4096 --cpus=2
 kubectl create namespace task-tracker
 kubectl config set-context --current --namespace=task-tracker
 
-# Reapply all labs
+# Reapply all Day 2 labs
 cd day-02-workloads-and-services
 kubectl apply -f lab-2.2-deployment/web-deployment.yaml
 kubectl apply -f lab-2.3-service/web-service.yaml
@@ -677,3 +764,4 @@ kubectl apply -f lab-2.4-multi-tier-capstone/api-service.yaml
 - [Lab 2.4 README](./README.md) - Verify steps
 - [Lezione 2 PDF](../../../docs/Lezione-2.pdf) - Theory review
 - [Kubernetes Service Debugging](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/)
+- [Kubernetes Namespaces](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/)
