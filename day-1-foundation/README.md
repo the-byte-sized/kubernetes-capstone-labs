@@ -89,61 +89,139 @@ kubectl get nodes
 
 ---
 
-### Step 1: Understand the Manifests
+### Step 1: Create ConfigMap with HTML Content
 
 **Navigate to day-1-foundation:**
 ```bash
 cd day-1-foundation/
-ls manifests/
 ```
 
-You should see:
-- `01-configmap-html.yaml` → Defines the HTML content
-- `02-pod-web.yaml` → Defines the nginx Pod
-
-**Inspect ConfigMap:**
+**Apply the ConfigMap** (this one is pre-built for you):
 ```bash
-cat manifests/01-configmap-html.yaml
-```
-
-Key sections:
-- `kind: ConfigMap` → Resource type
-- `metadata.name: web-html` → Name we'll reference in the Pod
-- `data.index.html` → The HTML content
-
-**Inspect Pod:**
-```bash
-cat manifests/02-pod-web.yaml
-```
-
-Key sections:
-- `kind: Pod` → Resource type
-- `spec.containers` → Container definition (nginx)
-- `spec.volumes` → References ConfigMap `web-html`
-- `volumeMounts` → Mounts ConfigMap content at `/usr/share/nginx/html`
-
----
-
-### Step 2: Apply Manifests
-
-```bash
-# Apply both manifests (order matters: ConfigMap first)
 kubectl apply -f manifests/01-configmap-html.yaml
-kubectl apply -f manifests/02-pod-web.yaml
-
-# Or apply all at once
-kubectl apply -f manifests/
 ```
 
 **Expected output:**
 ```
 configmap/web-html created
+```
+
+**Verify it exists:**
+```bash
+kubectl get configmap web-html
+```
+
+**Expected:**
+```
+NAME       DATA   AGE
+web-html   1      10s
+```
+
+**Optional - Inspect the content:**
+```bash
+kubectl describe configmap web-html
+```
+
+You'll see the HTML content stored under the `index.html` key.
+
+---
+
+### Step 2: Create Pod Manifest
+
+Now create `02-pod-web.yaml` starting from this skeleton:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  labels:
+    app: web
+    tier: frontend
+    day: "1"
+spec:
+  containers:
+  - name: nginx
+    image: # TODO: nginx image with Alpine Linux
+    ports:
+    - containerPort: # TODO: nginx port
+      name: http
+      protocol: TCP
+    volumeMounts:
+    - name: html-content
+      mountPath: /usr/share/nginx/html
+      readOnly: true
+    resources:
+      requests:
+        memory: "32Mi"
+        cpu: "50m"
+      limits:
+        memory: "64Mi"
+        cpu: "100m"
+  volumes:
+  - name: html-content
+    configMap:
+      name: # TODO: ConfigMap name from Step 1
+      items:
+      - key: index.html
+        path: index.html
+```
+
+**Fill in the 3 TODOs:**
+
+1. **image:** We need nginx with Alpine Linux (lightweight version)
+   - Go to [Docker Hub nginx page](https://hub.docker.com/_/nginx)
+   - Click on "Tags" tab
+   - Look for tags with pattern `<version>-alpine`
+   - We want version `1.25`
+   - Final format: `nginx:1.25-alpine`
+
+2. **containerPort:** What port does nginx listen on by default?
+   - Hint: Standard HTTP port is `80`
+   - This tells Kubernetes which port the container exposes
+
+3. **configMap.name:** What did we name the ConfigMap in Step 1?
+   ```bash
+   # Check existing ConfigMaps
+   kubectl get configmap
+   # Look for the one we just created (it's called "web-html")
+   ```
+
+**Understanding the structure:**
+- `volumeMounts`: Tells the container where to mount the ConfigMap content
+- `volumes`: Defines the ConfigMap as a volume source
+- `mountPath: /usr/share/nginx/html`: nginx's default web root directory
+
+**Helpful commands to explore:**
+```bash
+# Learn Pod structure
+kubectl explain pod.spec.containers
+kubectl explain pod.spec.containers.image
+kubectl explain pod.spec.volumes.configMap
+
+# Example: See what the 'image' field expects
+kubectl explain pod.spec.containers.image
+```
+
+**Stuck after 10 minutes?** A complete working example is available in `manifests/02-pod-web.yaml` in this directory.
+
+---
+
+### Step 3: Apply Pod Manifest
+
+```bash
+# Apply your Pod manifest
+kubectl apply -f 02-pod-web.yaml
+```
+
+**Expected output:**
+```
 pod/web created
 ```
 
 ---
 
-### Step 3: Verify Pod is Running
+### Step 4: Verify Pod is Running
 
 ```bash
 # Check Pod status
@@ -163,7 +241,7 @@ web    1/1     Running   0          10s
 
 ---
 
-### Step 4: Inspect Pod Details
+### Step 5: Inspect Pod Details
 
 ```bash
 # Get detailed information
@@ -190,7 +268,7 @@ Events:
 
 ---
 
-### Step 5: Access the Application
+### Step 6: Access the Application
 
 **Method 1: Port-forward (recommended for Day 1)**
 ```bash
@@ -225,7 +303,7 @@ After accessing via browser, you should see:
 
 ---
 
-### Step 6: Run Automated Verification
+### Step 7: Run Automated Verification
 
 ```bash
 # Make script executable (first time only)
@@ -287,7 +365,8 @@ kubectl get pod web -o yaml | grep -A 20 "status:"
 
 ```bash
 # Apply the same manifests again
-kubectl apply -f manifests/
+kubectl apply -f manifests/01-configmap-html.yaml
+kubectl apply -f 02-pod-web.yaml
 ```
 
 **You will likely see:**
@@ -314,7 +393,7 @@ kubectl get pods | grep web | wc -l
 # Output: 1
 
 # Apply again
-kubectl apply -f manifests/
+kubectl apply -f 02-pod-web.yaml
 
 # Count Pods after
 kubectl get pods | grep web | wc -l
@@ -445,12 +524,12 @@ You've completed Day 1 when:
 
 ---
 
-## ➡️ Next: Day 2 - Replication
+## ➡️ Next: Day 2 - Workloads and Services
 
 **Preview:** Tomorrow we'll move from a single Pod to a **Deployment** with 3 replicas, add a **Service** for stable networking, and see Kubernetes **self-healing** in action.
 
 ```bash
-cd ../day-2-replication/
+cd ../day-02-workloads-and-services/
 cat README.md
 ```
 
