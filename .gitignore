@@ -1,0 +1,37 @@
+# Kubernetes local files
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Temporary files
+*.tmp
+*.log
+
+# Minikube
+.minikube/
+
+# kubectl cache
+.kube/cache/
+
+# Helm (if used later)
+*.tgz
+.helm/
+
+# Secrets (should never be committed)
+*secret*.yaml
+*password*.txt
+*.key
+*.pem
+
+# Local environment
+.env
+.env.local
