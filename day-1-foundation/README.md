@@ -264,9 +264,22 @@ kubectl get pod web -o yaml | grep -A 20 "status:"
 
 **Question:** What's the difference between `spec` and `status`?
 
+<details>
+<summary><strong>💡 Click to reveal answer</strong></summary>
+
+<br>
+
 **Answer:** 
 - `spec` = what you **asked for** (desired state)
 - `status` = what Kubernetes **achieved** (actual state)
+
+**Why this matters:**
+- The API server stores both `spec` and `status`
+- Controllers continuously work to make `status` match `spec`
+- This is the core of Kubernetes' **reconciliation loop**
+- When troubleshooting, you compare desired vs actual to find where convergence failed
+
+</details>
 
 ---
 
@@ -312,16 +325,27 @@ kubectl get pod web -o jsonpath='{.spec.containers[0].image}'
 # Output: nginx:1.25-alpine (same as manifest)
 ```
 
-**Why does kubectl say "configured"?**
+**Question:** Why does kubectl say "configured" instead of "unchanged"?
 
-Server-Side Apply (SSA) in Kubernetes 1.22+ is more conservative. It reports `configured` when:
-- Metadata annotations are updated (even system-managed ones)
-- Field managers are reconciled
-- Default values are explicitly set
+<details>
+<summary><strong>💡 Click to reveal answer</strong></summary>
+
+<br>
+
+**Answer:** Server-Side Apply (SSA) in Kubernetes 1.22+ is more conservative. It reports `configured` when:
+- Metadata annotations are updated (even system-managed ones like `last-applied-configuration`)
+- Field managers are reconciled (SSA tracks which tool manages which field)
+- Default values are explicitly set by the API server
 
 **This does NOT mean the Pod was modified functionally.**
 
-**The key lesson:** Declarative management ensures the **desired state** is achieved, regardless of whether kubectl says "unchanged" or "configured". Both are success states.
+**Key insight:** kubectl v1.35 (and v1.28+) prioritizes **correctness** over cosmetic messages. It will say `configured` even when the only change is metadata that doesn't affect the Pod's behavior.
+
+**For production:** Both `unchanged` and `configured` are success states. Only `error` indicates a problem.
+
+**Further reading:** [Kubernetes Server-Side Apply](https://kubernetes.io/docs/reference/using-api/server-side-apply/)
+
+</details>
 
 ---
 
@@ -339,7 +363,34 @@ kubectl get pods
 
 **Question:** What would happen if this Pod was managed by a Deployment?
 
-**Answer:** Kubernetes would **automatically recreate** it (you'll see this in Day 2).
+<details>
+<summary><strong>💡 Click to reveal answer</strong></summary>
+
+<br>
+
+**Answer:** Kubernetes would **automatically recreate** it within seconds.
+
+**Why?** 
+- **Deployment** → **ReplicaSet** → **Pod** (ownership chain)
+- The ReplicaSet controller constantly watches the number of running Pods
+- When `actual replicas < desired replicas`, it creates new Pods
+- This is **self-healing** — one of Kubernetes' core features
+
+**What you'd see:**
+```bash
+kubectl delete pod web
+# Pod deleted
+
+kubectl get pods
+# NAME                   READY   STATUS    AGE
+# web-xxxxxxxxx-yyyyy    1/1     Running   3s  ← New Pod, different name
+```
+
+**You'll experience this firsthand in Day 2** when we introduce Deployments and test self-healing by intentionally deleting Pods.
+
+**Key concept:** "Naked Pods" (Pods without controllers) don't get recreated. Always use **Deployments** in production for resilience.
+
+</details>
 
 ---
 
@@ -379,7 +430,7 @@ You've completed Day 1 when:
 1. ✅ ConfigMap `web-html` exists: `kubectl get configmap web-html`
 2. ✅ Pod `web` is Running: `kubectl get pod web`
 3. ✅ HTML is accessible via `kubectl port-forward pod/web 8080:80` → [http://localhost:8080](http://localhost:8080)
-4. ✅ You can explain: Pod, ConfigMap, desired state, actual state
+4. ✅ You can explain: Pod, ConfigMap, desired state, actual state, idempotency
 5. ✅ Verification script passes: `./verify.sh`
 
 ---
