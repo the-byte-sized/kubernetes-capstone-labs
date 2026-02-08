@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: web-replicaset
+  labels:
+    app: web
+    component: replicaset
+spec:
+  # DESIRED STATE: how many Pods we want
+  replicas: 3
+
+  # SELECTOR: how ReplicaSet finds its Pods
+  # MUST match the labels in template.metadata.labels
+  selector:
+    matchLabels:
+      app: web
+      tier: frontend
+
+  # POD TEMPLATE: blueprint for Pods created by this ReplicaSet
+  # Identical to a Pod spec, but nested under 'template'
+  template:
+    metadata:
+      labels:
+        # These labels MUST match selector.matchLabels
+        app: web
+        tier: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        # Health checks (from Day 1)
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 5
+
+# HOW IT WORKS:
+# 1. ReplicaSet controller continuously watches Pods with labels app=web,tier=frontend
+# 2. If count < replicas (3), it creates Pods from the template
+# 3. If count > replicas (3), it deletes oldest Pods
+# 4. This is the reconciliation loop in action: observe → compare → act
+
+# TRY THIS:
+# - Apply this file: kubectl apply -f web-replicaset.yaml
+# - Check Pods: kubectl get pods --show-labels
+# - Delete one Pod: kubectl delete pod <pod-name>
+# - Watch recreation: kubectl get pods --watch
+# - Scale: kubectl scale replicaset web-replicaset --replicas=5
