@@ -250,7 +250,7 @@ chmod +x verify.sh
 
 ---
 
-## 🔍 Observation Exercises
+## 🔎 Observation Exercises
 
 ### Exercise 1: Understand Desired vs Actual State
 
@@ -270,20 +270,58 @@ kubectl get pod web -o yaml | grep -A 20 "status:"
 
 ---
 
-### Exercise 2: Test Idempotency
+### Exercise 2: Understand Idempotency
 
 ```bash
 # Apply the same manifests again
 kubectl apply -f manifests/
 ```
 
-**Expected output:**
+**You will likely see:**
 ```
 configmap/web-html unchanged
-pod/web unchanged
+pod/web configured
 ```
 
-**Observation:** Applying the same manifest multiple times produces the same result. This is **idempotency**.
+**⚠️ Important Note:** Modern kubectl (v1.28+, especially v1.35) often shows `configured` even when no functional changes occur. This is due to **Server-Side Apply (SSA)** tracking metadata more strictly.
+
+**What idempotency really means:**
+
+Idempotency is about **outcome**, not the message kubectl prints:
+
+1. ✅ **No duplicates created** (still 1 Pod named "web", not 2 or 3)
+2. ✅ **Same functional state** (Pod spec unchanged)
+3. ✅ **Safe to reapply** (no errors, no data loss)
+
+**Verify true idempotency:**
+
+```bash
+# Count Pods before
+kubectl get pods | grep web | wc -l
+# Output: 1
+
+# Apply again
+kubectl apply -f manifests/
+
+# Count Pods after
+kubectl get pods | grep web | wc -l
+# Output: 1 (not 2!) ← This proves idempotency
+
+# Verify Pod spec unchanged
+kubectl get pod web -o jsonpath='{.spec.containers[0].image}'
+# Output: nginx:1.25-alpine (same as manifest)
+```
+
+**Why does kubectl say "configured"?**
+
+Server-Side Apply (SSA) in Kubernetes 1.22+ is more conservative. It reports `configured` when:
+- Metadata annotations are updated (even system-managed ones)
+- Field managers are reconciled
+- Default values are explicitly set
+
+**This does NOT mean the Pod was modified functionally.**
+
+**The key lesson:** Declarative management ensures the **desired state** is achieved, regardless of whether kubectl says "unchanged" or "configured". Both are success states.
 
 ---
 
@@ -352,6 +390,7 @@ You've completed Day 1 when:
 - [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
 - [kubectl Cheat Sheet](https://kubernetes.io/docs/reference/kubectl/cheatsheet/)
 - [Declarative Management](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/)
+- [Server-Side Apply](https://kubernetes.io/docs/reference/using-api/server-side-apply/)
 
 ---
 
