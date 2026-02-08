@@ -186,9 +186,9 @@ kubectl get pods -l app=api --show-labels
 
 ## 🔍 3. DNS Resolution Works
 
-### **Check 3.1: DNS resolves short name (same namespace)**
+### **Check 3.1: DNS resolves short name**
 ```bash
-kubectl run test-dns-short -n task-tracker --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service
+kubectl run test-dns-short --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service
 ```
 
 **PASS:** Shows:
@@ -196,7 +196,7 @@ kubectl run test-dns-short -n task-tracker --image=busybox:1.36 --rm -it --resta
 Server:         10.96.0.10
 Address:        10.96.0.10:53
 
-Name:   api-service.task-tracker.svc.cluster.local
+Name:   api-service.default.svc.cluster.local
 Address: 10.96.234.56
 
 pod "test-dns-short" deleted
@@ -209,7 +209,7 @@ pod "test-dns-short" deleted
 
 ### **Check 3.2: DNS resolves FQDN**
 ```bash
-kubectl run test-dns-fqdn --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service.task-tracker.svc.cluster.local
+kubectl run test-dns-fqdn --image=busybox:1.36 --rm -it --restart=Never -- nslookup api-service.default.svc.cluster.local
 ```
 
 **PASS:** Resolves to same ClusterIP as Check 3.1.
@@ -265,7 +265,7 @@ pod "test-direct" deleted
 
 ### **Check 4.2: Service name access works (DNS)**
 ```bash
-kubectl run test-service -n task-tracker --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- curl -s http://api-service/get
+kubectl run test-service --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- curl -s http://api-service/get
 ```
 
 **PASS:** Returns JSON with `"Host": "api-service"`:
@@ -293,7 +293,7 @@ Test httpbin's `/uuid` endpoint (returns unique ID per request):
 
 ```bash
 for i in {1..5}; do
-  kubectl run test-lb-$i -n task-tracker --image=curlimages/curl:8.11.1 --rm --restart=Never -- curl -s http://api-service/uuid
+  kubectl run test-lb-$i --image=curlimages/curl:8.11.1 --rm --restart=Never -- curl -s http://api-service/uuid
 done
 ```
 
@@ -315,7 +315,7 @@ kubectl exec -it $WEB_POD -- nslookup api-service
 **PASS:** Resolves to ClusterIP.
 
 **FAIL if:**
-- `nslookup: can't resolve` → DNS issue or wrong namespace
+- `nslookup: can't resolve` → DNS issue
 
 ---
 
@@ -391,7 +391,7 @@ kubectl delete pod -l app=api --field-selector metadata.name=$(kubectl get pods 
 
 # Immediately test API
 for i in {1..5}; do
-  kubectl run test-resilience-$i -n task-tracker --image=curlimages/curl:8.11.1 --rm --restart=Never -- curl -s http://api-service/get | grep -i origin
+  kubectl run test-resilience-$i --image=curlimages/curl:8.11.1 --rm --restart=Never -- curl -s http://api-service/get | grep -i origin
   sleep 1
 done
 ```
