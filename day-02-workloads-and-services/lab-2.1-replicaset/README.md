@@ -29,12 +29,79 @@ kubectl config get-contexts
 
 ### Step 1: Create ReplicaSet manifest
 
-Create `web-replicaset.yaml` (see file in this directory).
+Create `web-replicaset.yaml` starting from this skeleton:
 
-**Key sections to understand:**
-- `spec.replicas: 3` → desired state
-- `spec.selector.matchLabels` → how ReplicaSet finds its Pods
-- `spec.template` → Pod template (identical to Day 1 Pod spec)
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: web-replicaset
+  labels:
+    app: web
+    component: replicaset
+spec:
+  replicas: # TODO: How many Pods do we want?
+  
+  selector:
+    matchLabels:
+      app: # TODO: Must match Pod template labels below
+      tier: # TODO: Must match Pod template labels below
+  
+  template:
+    metadata:
+      labels:
+        app: # TODO: Same as selector above
+        tier: # TODO: Same as selector above
+    spec:
+      containers:
+      - name: nginx
+        image: # TODO: nginx version (hint: nginx:1.27-alpine)
+        ports:
+        - containerPort: # TODO: What port does nginx use?
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 5
+```
+
+**Fill in the TODOs:**
+
+1. **replicas:** We want 3 Pod instances
+2. **selector.matchLabels:** These labels tell ReplicaSet which Pods to manage
+   - `app: web` (application name)
+   - `tier: frontend` (tier label)
+3. **template.metadata.labels:** MUST be identical to selector labels (critical!)
+4. **image:** Use `nginx:1.27-alpine`
+5. **containerPort:** Nginx listens on port `80`
+
+**Why selector = template labels?**
+ReplicaSet finds its Pods by querying: "Show me all Pods with labels X". If labels don't match, ReplicaSet won't manage those Pods!
+
+**Helpful commands:**
+```bash
+# Learn ReplicaSet structure
+kubectl explain replicaset.spec
+kubectl explain replicaset.spec.selector
+kubectl explain replicaset.spec.template
+```
+
+**Stuck after 10 minutes?** A complete working example is available in `web-replicaset.yaml` in this directory.
 
 ### Step 2: Apply ReplicaSet
 

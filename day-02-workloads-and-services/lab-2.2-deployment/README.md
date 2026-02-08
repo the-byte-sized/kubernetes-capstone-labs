@@ -48,12 +48,84 @@ kubectl get pods
 
 ### Step 2: Create Deployment manifest
 
-Create `web-deployment.yaml` (see file in this directory).
+Create `web-deployment.yaml` starting from this skeleton:
 
-**Key differences from ReplicaSet:**
-- `kind: Deployment` (not ReplicaSet)
-- Deployment creates and manages ReplicaSets automatically
-- Enables `strategy` for rollout behavior
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deployment
+  labels:
+    app: web
+    component: deployment
+spec:
+  replicas: # TODO: Same as ReplicaSet - how many?
+  
+  selector:
+    matchLabels:
+      app: # TODO: Must match template labels
+      tier: # TODO: Must match template labels
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  
+  template:
+    metadata:
+      labels:
+        app: # TODO: Same as selector
+        tier: # TODO: Same as selector
+    spec:
+      containers:
+      - name: nginx
+        image: # TODO: nginx:1.27-alpine
+        ports:
+        - containerPort: # TODO: nginx port
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 5
+```
+
+**Fill in the TODOs:**
+
+1. **replicas:** `3` (same as ReplicaSet)
+2. **selector.matchLabels:** `app: web` and `tier: frontend`
+3. **template.metadata.labels:** MUST match selector (same as Lab 2.1)
+4. **image:** `nginx:1.27-alpine`
+5. **containerPort:** `80`
+
+**Key difference from ReplicaSet:**
+- Deployment has `strategy` field for controlling updates
+- `RollingUpdate` means gradual replacement (no downtime)
+- `maxUnavailable: 25%` = at most 1 Pod down during update (with 3 replicas)
+- `maxSurge: 25%` = at most 4 Pods total during update (3 + 1)
+
+**Helpful commands:**
+```bash
+kubectl explain deployment.spec.strategy
+kubectl explain deployment.spec.strategy.rollingUpdate
+```
+
+**Stuck after 10 minutes?** Complete example in `web-deployment.yaml` in this directory.
 
 ### Step 3: Apply Deployment
 
