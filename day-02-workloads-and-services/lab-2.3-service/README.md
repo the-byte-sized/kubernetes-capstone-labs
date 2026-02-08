@@ -64,12 +64,57 @@ web-deployment-7f8c9d5b6f-ghi56   1/1     Running   0          10m   10.244.0.7
 
 ### Step 2: Create Service manifest
 
-Create `web-service.yaml` (see file in this directory).
+Create `web-service.yaml` starting from this skeleton:
 
-**Key sections:**
-- `type: ClusterIP` → stable internal IP
-- `selector` → matches Pods with `app=web, tier=frontend`
-- `ports` → maps Service port to Pod port
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+  labels:
+    app: web
+    component: service
+spec:
+  type: # TODO: ClusterIP, NodePort, or LoadBalancer?
+  
+  selector:
+    app: # TODO: Must match Deployment Pod labels
+    tier: # TODO: Must match Deployment Pod labels
+  
+  ports:
+  - name: http
+    protocol: TCP
+    port: # TODO: Port exposed by Service
+    targetPort: # TODO: Port on the Pod (container)
+  
+  sessionAffinity: None
+```
+
+**Fill in the TODOs:**
+
+1. **type:** `ClusterIP` (we want internal-only access)
+2. **selector:** Must match your Deployment's Pod labels
+   ```bash
+   # Check Pod labels
+   kubectl get pods --show-labels
+   ```
+   You should see: `app=web,tier=frontend`
+3. **port:** `80` (Service port - what clients connect to)
+4. **targetPort:** `80` (Pod port - where nginx listens)
+
+**Why selector matters:**
+Service continuously queries: "Show me all Pods with labels `app=web` AND `tier=frontend`".
+Those Pod IPs become the Service's **Endpoints**.
+
+**Helpful commands:**
+```bash
+# Learn Service structure
+kubectl explain service.spec
+kubectl explain service.spec.selector
+kubectl explain service.spec.ports
+```
+
+**Stuck after 10 minutes?** Complete example in `web-service.yaml` in this directory.
 
 ### Step 3: Apply Service
 
