@@ -625,4 +625,4 @@ Test namespace isolation:
 ---
 
 **Previous**: [Lab 2.3 - Service](../lab-2.3-service/README.md)  
-**Next**: [Day 3 - Networking, Ingress & Config](../../day-03-networking-ingress/README.md)
+**Next**: [Day 3 - Networking, Ingress & Config](../../day-03-networking-ingress-config/README.md)
