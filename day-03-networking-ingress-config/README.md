@@ -17,7 +17,7 @@ Today you'll understand:
 
 ## 📋 Prerequisites
 
-✅ **Day 2 completed:**
+✅ **Day 2 completed (Lab 2.4 - Multi-Tier Capstone)**:
 - `web-deployment` (3 replicas) + `web-service` (ClusterIP)
 - `api-deployment` (2 replicas) + `api-service` (ClusterIP)
 - DNS resolution working between Pods
@@ -140,7 +140,7 @@ kubectl run test-curl --image=curlimages/curl:8.11.1 --rm -it --restart=Never --
 
 # Check EndpointSlices (modern way)
 kubectl get endpointslice
-kubectl get endpointslice -l kubernetes.io/service-name=<service-name> -o yaml
+kubectl get EndpointSlice -l kubernetes.io/service-name=<service-name> -o yaml
 ```
 
 ### Ingress Debugging
@@ -154,7 +154,7 @@ kubectl -n ingress-nginx get pods
 kubectl -n ingress-nginx logs <controller-pod-name>
 
 # Verify backend Service + endpoints
-kubectl get svc,endpointslice
+kubectl get svc,EndpointSlice
 ```
 
 ### ConfigMap/Secret Verification
@@ -184,7 +184,7 @@ kubectl get pods -o wide  # Look at READY column
 kubectl describe pod <pod-name>  # Look for Liveness/Readiness sections
 
 # Watch endpoint changes
-kubectl get endpointslice --watch
+kubectl get EndpointSlice --watch
 
 # Check probe failures in events
 kubectl describe pod <pod-name>  # Look at Events
@@ -198,7 +198,7 @@ kubectl describe pod <pod-name>  # Look at Events
 
 **Golden path diagnostic:**
 1. Service exists? `kubectl get svc <name>`
-2. Endpoints exist? `kubectl get endpointslice`
+2. Endpoints exist? `kubectl get EndpointSlice`
 3. Pods Ready? `kubectl get pods -l <selector>`
 4. Selector matches? Compare Service selector to Pod labels
 5. Port correct? `port` (Service) → `targetPort` → Pod `containerPort`
@@ -218,7 +218,7 @@ kubectl describe pod <pod-name>  # Look at Events
 2. Ingress created? `kubectl get ingress`
 3. Rules correct? `kubectl describe ingress` - check host/path
 4. Backend Service exists? `kubectl get svc <backend-service>`
-5. Backend has endpoints? `kubectl get endpointslice`
+5. Backend has endpoints? `kubectl get EndpointSlice`
 
 **Remember:** Problems "before" the API (validation, not found) vs "after" (object exists but doesn't converge). Network issues are usually "after" - the object exists, but connections are missing.
 

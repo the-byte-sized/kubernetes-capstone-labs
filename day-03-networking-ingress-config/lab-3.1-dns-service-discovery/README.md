@@ -14,7 +14,7 @@ If either answer is "no," the problem is before any application logs.
 
 ## 📚 Prerequisites
 
-✅ **Day 2 completed:**
+✅ **Day 2 completed (Lab 2.4 - Multi-Tier Capstone)**:
 - `web-deployment` with 3 replicas Running
 - `web-service` ClusterIP Service created
 - `api-deployment` with 2 replicas Running
@@ -140,7 +140,7 @@ api-service   10.244.0.10:80,10.244.0.11:80   10m
 **Modern approach (Kubernetes v1.35):** Use EndpointSlice:
 
 ```bash
-kubectl get endpointslice -l kubernetes.io/service-name=api-service
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service
 ```
 
 **Expected:**
@@ -152,7 +152,7 @@ api-service-abc123    IPv4          80      10.244.0.10,10.244.0.11      10m
 Detailed view:
 
 ```bash
-kubectl get endpointslice -l kubernetes.io/service-name=api-service -o yaml | grep -A 5 endpoints:
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml | grep -A 5 endpoints:
 ```
 
 **Expected:**
@@ -280,18 +280,17 @@ kubectl delete namespace test-ns
 
 ## ✅ Verification Checklist
 
-**Pass criteria (all must succeed):**
+**Pass criteria:**
 
-- [ ] `nslookup api-service` resolves to Service ClusterIP
-- [ ] `nslookup web-service` resolves to Service ClusterIP
-- [ ] `curl http://api-service/get` from test Pod returns JSON (200 OK)
-- [ ] `kubectl get endpoints api-service` shows 2 Pod IPs
-- [ ] `kubectl get endpointslice` shows Ready endpoints matching Pod IPs
-- [ ] Web Pod can call `http://api-service` successfully (cross-tier communication)
-- [ ] FQDN resolution works: `api-service.default.svc.cluster.local` resolves
-- [ ] Multiple requests are load-balanced across API Pods (check logs)
+- [ ] `nslookup api-service` resolves to ClusterIP (10.96.x.x)
+- [ ] `nslookup web-service` resolves to ClusterIP (10.96.x.x)
+- [ ] `curl http://api-service/get` from test Pod returns JSON 200 OK
+- [ ] `kubectl get endpoints api-service` shows 2 endpoints (Pod IPs)
+- [ ] `kubectl get EndpointSlice` shows Ready endpoints matching `kubectl get pods -o wide`
+- [ ] Web Pod can call `http://api-service` (exec into web, install curl, test)
+- [ ] FQDN works: `api-service.default.svc.cluster.local` resolves from any namespace
 
-**If any check fails, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)**
+**If any check fails, proceed to [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)**
 
 ---
 
@@ -421,7 +420,7 @@ kubectl delete namespace other-ns
 - [ ] `nslookup web-service` resolves to ClusterIP (10.96.x.x)
 - [ ] `curl http://api-service/get` from test Pod returns JSON 200 OK
 - [ ] `kubectl get endpoints api-service` shows 2 endpoints (Pod IPs)
-- [ ] `kubectl get endpointslice` shows Ready endpoints matching `kubectl get pods -o wide`
+- [ ] `kubectl get EndpointSlice` shows Ready endpoints matching `kubectl get pods -o wide`
 - [ ] Web Pod can call `http://api-service` (exec into web, install curl, test)
 - [ ] FQDN works: `api-service.default.svc.cluster.local` resolves from any namespace
 
@@ -453,7 +452,7 @@ kubectl delete namespace other-ns
 kubectl get svc <name>
 
 # 2. Endpoints exist?
-kubectl get endpointslice -l kubernetes.io/service-name=<name>
+kubectl get EndpointSlice -l kubernetes.io/service-name=<name>
 
 # 3. Pods Ready?
 kubectl get pods -l <selector> -o wide
