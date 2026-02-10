@@ -21,13 +21,17 @@
 - [API returns 404 Not Found](#api-returns-404-not-found)
 - [API CrashLoopBackOff](#api-crashloopbackoff)
 
+**Frontend Issues:**
+- [Frontend Pod not starting](#frontend-pod-not-starting)
+- [Browser shows "Cannot connect to API"](#browser-shows-cannot-connect-to-api)
+- [Port-forward "address already in use"](#port-forward-address-already-in-use)
+- [Page loads but is blank](#page-loads-but-is-blank)
+- [Tasks don't appear after adding](#tasks-dont-appear-after-adding)
+
 **RBAC Issues:**
 - [403 on allowed action](#403-on-allowed-action)
 - [can-i says "yes" but command fails](#can-i-says-yes-but-command-fails)
 - [ServiceAccount not working](#serviceaccount-not-working)
-
-**Network Issues:**
-- [Ingress returns 404](#ingress-returns-404)
 
 ---
 
@@ -39,7 +43,7 @@
 
 **Diagnosis:**
 ```bash
-kubectl describe pvc postgres-pvc -n capstone
+kubectl describe pvc postgres-pvc
 # Read the Events section at the bottom
 ```
 
@@ -68,11 +72,11 @@ spec:
       storage: 1Gi
 
 # Reapply
-kubectl delete pvc postgres-pvc -n capstone
+kubectl delete pvc postgres-pvc
 kubectl apply -f manifests/02-pvc-postgres.yaml
 
 # Verify
-kubectl get pvc -n capstone -w
+kubectl get pvc -w
 ```
 
 #### Cause 2: Waiting for first consumer
@@ -101,7 +105,7 @@ minikube addons list | grep storage-provisioner
 minikube addons enable storage-provisioner
 
 # Delete and recreate PVC
-kubectl delete pvc postgres-pvc -n capstone
+kubectl delete pvc postgres-pvc
 kubectl apply -f manifests/02-pvc-postgres.yaml
 ```
 
@@ -113,8 +117,8 @@ kubectl apply -f manifests/02-pvc-postgres.yaml
 
 **Diagnosis:**
 ```bash
-kubectl logs -n capstone -l app=postgres --tail=50
-kubectl describe pod -n capstone -l app=postgres
+kubectl logs -l app=database --tail=50
+kubectl describe pod -l app=database
 ```
 
 #### Cause 1: PVC not bound
@@ -123,7 +127,7 @@ kubectl describe pod -n capstone -l app=postgres
 
 **Fix:** Check PVC status:
 ```bash
-kubectl get pvc -n capstone
+kubectl get pvc
 # STATUS must be Bound before Pod can start
 
 # If Pending, see "PVC Pending" section above
@@ -136,13 +140,13 @@ kubectl get pvc -n capstone
 **Fix:**
 ```bash
 # Check Secret exists
-kubectl get secret postgres-secret -n capstone
+kubectl get secret postgres-secret
 
 # If not found, create it:
 kubectl apply -f manifests/01-secret-postgres.yaml
 
 # Restart Postgres
-kubectl rollout restart deploy postgres -n capstone
+kubectl rollout restart deploy postgres
 ```
 
 #### Cause 3: Data directory corruption
@@ -151,8 +155,8 @@ kubectl rollout restart deploy postgres -n capstone
 
 **Fix:** Delete PVC and start fresh (WARNING: loses data):
 ```bash
-kubectl delete deploy postgres -n capstone
-kubectl delete pvc postgres-pvc -n capstone
+kubectl delete deploy postgres
+kubectl delete pvc postgres-pvc
 kubectl apply -f manifests/02-pvc-postgres.yaml
 kubectl apply -f manifests/03-deployment-postgres.yaml
 ```
@@ -167,7 +171,7 @@ kubectl apply -f manifests/03-deployment-postgres.yaml
 
 **Check:**
 ```bash
-kubectl get pvc -n capstone
+kubectl get pvc
 # postgres-pvc must exist
 ```
 
@@ -177,7 +181,7 @@ kubectl get pvc -n capstone
 
 **Check Deployment:**
 ```bash
-kubectl get deploy postgres -n capstone -o yaml | grep -A5 volumes:
+kubectl get deploy postgres -o yaml | grep -A5 volumes:
 # Should show persistentVolumeClaim, not emptyDir
 ```
 
@@ -189,11 +193,11 @@ kubectl get deploy postgres -n capstone -o yaml | grep -A5 volumes:
 
 ### API returns 500 Internal Server Error
 
-**Symptom:** `curl http://capstone.local/api/tasks` returns 500
+**Symptom:** `curl http://localhost:8080/api/tasks` returns 500 (via port-forward)
 
 **Diagnosis:**
 ```bash
-kubectl logs -n capstone -l app=api --tail=50
+kubectl logs -l app=api --tail=50
 ```
 
 #### Cause 1: Cannot connect to database
@@ -202,37 +206,37 @@ kubectl logs -n capstone -l app=api --tail=50
 
 **Possible fixes:**
 
-**A) Wrong DB_HOST in Secret:**
+**A) Postgres not ready:**
 ```bash
-# Check Secret
-kubectl get secret postgres-secret -n capstone -o jsonpath='{.data.DB_HOST}' | base64 -d
-# Expected: postgres-service
+kubectl get pods -l app=database
+# Must show READY 1/1, STATUS Running
 
-# If wrong, edit Secret:
-kubectl edit secret postgres-secret -n capstone
-# Change DB_HOST to: postgres-service
-
-# Restart API
-kubectl rollout restart deploy api -n capstone
+# Check Postgres logs:
+kubectl logs -l app=database
 ```
 
 **B) Postgres Service not created:**
 ```bash
-kubectl get svc postgres-service -n capstone
-kubectl get endpoints postgres-service -n capstone
+kubectl get svc postgres-service
+kubectl get endpoints postgres-service
 # Endpoints should show an IP address
 
 # If Service missing:
 kubectl apply -f manifests/04-service-postgres.yaml
 ```
 
-**C) Postgres not ready:**
+**C) Wrong DB credentials in env:**
 ```bash
-kubectl get pods -n capstone -l app=postgres
-# Must show READY 1/1, STATUS Running
+# Check API environment variables
+kubectl exec deploy/task-api -- env | grep POSTGRES
+# Should show:
+# POSTGRES_HOST=postgres-service
+# POSTGRES_USER=taskuser
+# POSTGRES_PASSWORD=taskpass
+# POSTGRES_DB=tasktracker
 
-# Check Postgres logs:
-kubectl logs -n capstone -l app=postgres
+# If wrong, check Secret:
+kubectl get secret postgres-secret -o jsonpath='{.data}' | jq
 ```
 
 #### Cause 2: Wrong Secret keys
@@ -241,24 +245,24 @@ kubectl logs -n capstone -l app=postgres
 
 **Fix:** Check Secret has all required keys:
 ```bash
-kubectl get secret postgres-secret -n capstone -o jsonpath='{.data}' | jq
-# Must have: DB_HOST, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+kubectl get secret postgres-secret -o jsonpath='{.data}' | jq
+# Must have: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
 
 # If keys missing, reapply Secret:
 kubectl apply -f manifests/01-secret-postgres.yaml
-kubectl rollout restart deploy api -n capstone
+kubectl rollout restart deploy task-api
 ```
 
 ---
 
 ### API returns 404 Not Found
 
-**Symptom:** `curl http://capstone.local/api/tasks` returns 404
+**Symptom:** `curl http://localhost:8080/api/tasks` returns 404
 
 **Diagnosis:**
 ```bash
-kubectl get ingress -n capstone
-kubectl describe ingress capstone-ingress -n capstone
+kubectl get svc task-api-service
+kubectl describe svc task-api-service
 ```
 
 #### Cause: Service selector mismatch
@@ -266,21 +270,17 @@ kubectl describe ingress capstone-ingress -n capstone
 **Check Service selector matches Pod labels:**
 ```bash
 # Check Service selector
-kubectl get svc api-service -n capstone -o yaml | grep selector -A2
+kubectl get svc task-api-service -o yaml | grep selector -A2
 
 # Check Pod labels
-kubectl get pods -n capstone -l app=api --show-labels
+kubectl get pods -l app=api --show-labels
 
 # Selector must match Pod labels (app=api)
 ```
 
 **Fix:**
 ```bash
-# If mismatch, edit Service:
-kubectl edit svc api-service -n capstone
-# Ensure selector has: app: api
-
-# Or reapply:
+# If mismatch, reapply Service:
 kubectl apply -f manifests/06-service-api.yaml
 ```
 
@@ -288,11 +288,11 @@ kubectl apply -f manifests/06-service-api.yaml
 
 **Check:**
 ```bash
-kubectl get endpoints api-service -n capstone
+kubectl get endpoints task-api-service
 # Should show IP addresses
 
 # If empty, Pod is not Ready or selector is wrong
-kubectl get pods -n capstone -l app=api
+kubectl get pods -l app=api
 ```
 
 ---
@@ -303,8 +303,8 @@ kubectl get pods -n capstone -l app=api
 
 **Diagnosis:**
 ```bash
-kubectl logs -n capstone -l app=api --tail=50
-kubectl describe pod -n capstone -l app=api
+kubectl logs -l app=api --tail=50
+kubectl describe pod -l app=api
 ```
 
 #### Cause: Image pull error
@@ -313,12 +313,12 @@ kubectl describe pod -n capstone -l app=api
 
 **Fix:**
 ```bash
-# Check image name in Deployment
-kubectl get deploy api -n capstone -o jsonpath='{.spec.template.spec.containers[0].image}'
-# Expected: ghcr.io/the-byte-sized/task-api:v1.0
+# Check image is public
+docker pull ghcr.io/the-byte-sized/task-api:latest
 
-# If wrong, edit:
-kubectl edit deploy api -n capstone
+# If fails, image may not be public
+# Go to: https://github.com/orgs/the-byte-sized/packages
+# Set visibility to Public
 ```
 
 #### Cause: Secret not found
@@ -328,8 +328,218 @@ kubectl edit deploy api -n capstone
 **Fix:**
 ```bash
 kubectl apply -f manifests/01-secret-postgres.yaml
-kubectl rollout restart deploy api -n capstone
+kubectl rollout restart deploy task-api
 ```
+
+---
+
+## Frontend Issues
+
+### Frontend Pod not starting
+
+**Symptom:** `kubectl get pods -l app=web` shows `ImagePullBackOff` or `CrashLoopBackOff`
+
+**Diagnosis:**
+```bash
+kubectl describe pod -l app=web
+kubectl logs -l app=web --tail=50
+```
+
+#### Cause 1: Image pull error
+
+**Events show:** `Failed to pull image ghcr.io/the-byte-sized/task-web:latest`
+
+**Fix:**
+```bash
+# Test image pull manually
+docker pull ghcr.io/the-byte-sized/task-web:latest
+
+# If fails, image is not public
+# Go to: https://github.com/orgs/the-byte-sized/packages/container/task-web/settings
+# Change visibility to Public
+
+# Delete pods to retry
+kubectl delete pod -l app=web
+```
+
+#### Cause 2: nginx cannot resolve API service
+
+**Logs show:** `host not found in upstream "task-api-service"`
+
+**Fix:**
+```bash
+# Verify API service exists
+kubectl get svc task-api-service
+# Expected: ClusterIP with port 8080
+
+# If missing:
+kubectl apply -f manifests/06-service-api.yaml
+
+# Restart frontend
+kubectl rollout restart deploy task-web
+```
+
+---
+
+### Browser shows "Cannot connect to API"
+
+**Symptom:** Frontend loads but displays: "⚠️ Impossibile connettersi all'API"
+
+**Diagnosis:**
+```bash
+# Test from within frontend pod
+FRONTEND_POD=$(kubectl get pod -l app=web -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it $FRONTEND_POD -- wget -qO- http://task-api-service:8080/api/health
+```
+
+#### Cause 1: API Service not found
+
+**wget output:** `bad address 'task-api-service'`
+
+**Fix:**
+```bash
+# Create API service
+kubectl apply -f manifests/06-service-api.yaml
+
+# Verify
+kubectl get svc task-api-service
+kubectl get endpoints task-api-service
+```
+
+#### Cause 2: API pods not ready
+
+**wget output:** `Connection refused` or timeout
+
+**Fix:**
+```bash
+# Check API pods
+kubectl get pods -l app=api
+# Must show READY 1/1
+
+# If not ready, check logs
+kubectl logs -l app=api --tail=50
+```
+
+#### Cause 3: API unhealthy
+
+**wget returns error or non-200 status**
+
+**Fix:**
+```bash
+# Check API health directly
+kubectl port-forward svc/task-api-service 8080:8080 &
+curl http://localhost:8080/api/health
+kill %1
+
+# If unhealthy, see "API returns 500" section above
+```
+
+---
+
+### Port-forward "address already in use"
+
+**Symptom:** `kubectl port-forward svc/task-web-service 8080:80` errors: "bind: address already in use"
+
+#### Cause: Port 8080 is occupied
+
+**Fix - Option 1: Use different port**
+```bash
+kubectl port-forward svc/task-web-service 8081:80
+# Then open http://localhost:8081
+```
+
+**Fix - Option 2: Kill existing port-forward**
+```bash
+# Find and kill port-forward processes
+pkill -f "port-forward.*task-web"
+
+# Or find process using port
+lsof -ti:8080 | xargs kill -9
+
+# Then retry
+kubectl port-forward svc/task-web-service 8080:80
+```
+
+---
+
+### Page loads but is blank
+
+**Symptom:** Browser shows blank/white page, no content
+
+**Diagnosis:**
+```bash
+# Open browser console (F12) and check for JavaScript errors
+
+# Verify nginx is serving correct files
+kubectl exec -it deploy/task-web -- ls -la /usr/share/nginx/html/
+# Should show: index.html
+```
+
+#### Cause: Missing index.html
+
+**ls output:** No index.html file
+
+**Fix:** Image is corrupted, re-pull:
+```bash
+kubectl delete pod -l app=web
+# Kubernetes will recreate with fresh image pull
+```
+
+#### Cause: JavaScript error
+
+**Browser console shows errors**
+
+**Fix:** Clear browser cache and reload:
+```bash
+# Chrome/Edge: Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac)
+# Firefox: Ctrl+F5 (Windows) or Cmd+Shift+R (Mac)
+```
+
+---
+
+### Tasks don't appear after adding
+
+**Symptom:** Click "Aggiungi" but task doesn't show in list
+
+**Diagnosis:**
+```bash
+# Check browser console (F12) for errors
+
+# Test API directly
+kubectl port-forward svc/task-api-service 8082:8080 &
+curl -X POST http://localhost:8082/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Test"}'
+kill %1
+```
+
+#### Cause 1: API error
+
+**curl returns 500 or error**
+
+**Fix:** See "API returns 500" section above
+
+#### Cause 2: Database not persisting
+
+**curl succeeds but subsequent GET returns empty**
+
+**Fix:**
+```bash
+# Check Postgres is running
+kubectl get pods -l app=database
+
+# Check PVC is bound
+kubectl get pvc postgres-pvc
+
+# Check API logs for DB errors
+kubectl logs -l app=api --tail=50 | grep -i error
+```
+
+#### Cause 3: Frontend not auto-refreshing
+
+**Task exists in API but not visible in browser**
+
+**Fix:** Wait 5 seconds (auto-refresh interval) or manually refresh browser (F5)
 
 ---
 
@@ -341,7 +551,7 @@ kubectl rollout restart deploy api -n capstone
 
 **Diagnosis:**
 ```bash
-kubectl describe rolebinding readonly-binding -n capstone
+kubectl describe rolebinding readonly-binding
 ```
 
 #### Cause 1: Wrong namespace in RoleBinding
@@ -351,13 +561,13 @@ kubectl describe rolebinding readonly-binding -n capstone
 **Check:**
 ```bash
 kubectl get rolebinding -A | grep readonly
-# Ensure it's in "capstone" namespace
+# Ensure it's in "default" namespace
 ```
 
 **Fix:**
 ```bash
 # Reapply RBAC manifest:
-kubectl delete rolebinding readonly-binding -n capstone
+kubectl delete rolebinding readonly-binding
 kubectl apply -f manifests/07-rbac-readonly.yaml
 ```
 
@@ -367,16 +577,16 @@ kubectl apply -f manifests/07-rbac-readonly.yaml
 
 **Check:**
 ```bash
-kubectl describe rolebinding readonly-binding -n capstone
+kubectl describe rolebinding readonly-binding
 # Check "Subjects" section matches:
 # Kind: ServiceAccount
 # Name: readonly-sa
-# Namespace: capstone
+# Namespace: default
 ```
 
 **Fix:** Edit RoleBinding:
 ```bash
-kubectl edit rolebinding readonly-binding -n capstone
+kubectl edit rolebinding readonly-binding
 ```
 
 ---
@@ -393,10 +603,10 @@ kubectl edit rolebinding readonly-binding -n capstone
 **Check:**
 ```bash
 # Verify resource exists first
-kubectl get pods -n capstone
+kubectl get pods
 
 # Then try action as ServiceAccount
-kubectl get pods -n capstone --as=system:serviceaccount:capstone:readonly-sa
+kubectl get pods --as=system:serviceaccount:default:readonly-sa
 ```
 
 ---
@@ -409,7 +619,7 @@ kubectl get pods -n capstone --as=system:serviceaccount:capstone:readonly-sa
 
 **Check Pod spec:**
 ```bash
-kubectl get pod <pod-name> -n capstone -o yaml | grep serviceAccountName
+kubectl get pod <pod-name> -o yaml | grep serviceAccountName
 # Should show: serviceAccountName: readonly-sa
 ```
 
@@ -423,77 +633,43 @@ spec:
 
 ---
 
-## Network Issues
-
-### Ingress returns 404
-
-**Symptom:** `curl http://capstone.local/api/tasks` returns 404
-
-**Diagnosis:**
-```bash
-kubectl get ingress -n capstone
-kubectl describe ingress capstone-ingress -n capstone
-```
-
-#### Cause: Path not matching
-
-**Check Ingress rules:**
-```bash
-kubectl get ingress capstone-ingress -n capstone -o yaml
-# Look for path: /api
-# Ensure pathType: Prefix
-```
-
-#### Cause: Backend Service wrong
-
-**Check Ingress backend:**
-```bash
-kubectl describe ingress capstone-ingress -n capstone
-# Backend should point to: api-service:80
-```
-
-**Fix:**
-```bash
-# If Day 3 Ingress points to old httpbin, update it:
-kubectl edit ingress capstone-ingress -n capstone
-# Or reapply Day 3 Ingress (should already point to api-service)
-```
-
----
-
 ## Quick Reference: Diagnostic Commands
 
 ```bash
 # Storage
-kubectl get pvc,pv,sc -n capstone
-kubectl describe pvc postgres-pvc -n capstone
+kubectl get pvc,pv,sc
+kubectl describe pvc postgres-pvc
 
 # Pods
-kubectl get pods -n capstone
-kubectl describe pod <name> -n capstone
-kubectl logs -n capstone <pod-name>
-kubectl logs -n capstone <pod-name> --previous  # Previous crash logs
+kubectl get pods
+kubectl describe pod <name>
+kubectl logs <pod-name> --tail=50
+kubectl logs <pod-name> --previous  # Previous crash logs
 
 # Services and connectivity
-kubectl get svc,endpoints -n capstone
-kubectl describe svc <name> -n capstone
+kubectl get svc,endpoints
+kubectl describe svc <name>
+
+# Test connectivity between pods
+kubectl exec -it <pod> -- wget -qO- http://<service>:<port>/path
 
 # RBAC
-kubectl get sa,role,rolebinding -n capstone
-kubectl describe rolebinding <name> -n capstone
-kubectl auth can-i <verb> <resource> -n capstone --as=system:serviceaccount:<ns>:<sa>
+kubectl get sa,role,rolebinding
+kubectl describe rolebinding <name>
+kubectl auth can-i <verb> <resource> --as=system:serviceaccount:<ns>:<sa>
 
 # Secrets
-kubectl get secret <name> -n capstone
-kubectl describe secret <name> -n capstone
-kubectl get secret <name> -n capstone -o jsonpath='{.data}' | jq
+kubectl get secret <name>
+kubectl describe secret <name>
+kubectl get secret <name> -o jsonpath='{.data}' | jq
 
 # Events (recent)
-kubectl get events -n capstone --sort-by='.lastTimestamp' | tail -20
+kubectl get events --sort-by='.lastTimestamp' | tail -20
 
-# Ingress
-kubectl get ingress -n capstone
-kubectl describe ingress <name> -n capstone
+# Frontend specific
+kubectl logs -l app=web --tail=30
+kubectl exec -it deploy/task-web -- cat /etc/nginx/conf.d/default.conf
+kubectl exec -it deploy/task-web -- wget -qO- http://task-api-service:8080/api/health
 ```
 
 ---
@@ -501,13 +677,14 @@ kubectl describe ingress <name> -n capstone
 ## Still Stuck?
 
 1. **Run verification:** `./verify.sh` to see which check fails
-2. **Check Events:** `kubectl get events -n capstone --sort-by='.lastTimestamp'`
+2. **Check Events:** `kubectl get events --sort-by='.lastTimestamp'`
 3. **Review manifests:** Compare your files with originals in repo
-4. **Fresh start:** Delete namespace and start from Day 3:
+4. **Fresh start:** Delete all resources and redeploy:
    ```bash
-   kubectl delete namespace capstone
-   kubectl create namespace capstone
-   # Reapply Day 3 first, then Day 4
+   kubectl delete all --all
+   kubectl delete pvc --all
+   kubectl delete secret --all
+   # Then reapply from manifests/01-* through 09-*
    ```
 
 ---
@@ -517,4 +694,5 @@ kubectl describe ingress <name> -n capstone
 - [Kubernetes Troubleshooting](https://kubernetes.io/docs/tasks/debug/)
 - [PVC Troubleshooting](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#troubleshooting)
 - [RBAC Troubleshooting](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#troubleshooting)
+- [nginx Troubleshooting](https://nginx.org/en/docs/debugging_log.html)
 - [Minikube Docs](https://minikube.sigs.k8s.io/docs/)
