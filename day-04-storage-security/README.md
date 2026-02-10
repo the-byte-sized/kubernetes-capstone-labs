@@ -7,7 +7,7 @@ By the end of this lab, you will be able to:
 - [ ] Verify that data survives Pod restart
 - [ ] Configure applications using Secrets for credentials
 - [ ] Create RBAC policies with ServiceAccount, Role, and RoleBinding
-- [ ] Deploy a multi-tier application with web frontend
+- [ ] Deploy a multi-tier application with web frontend via Ingress
 - [ ] Test the complete stack via browser interface
 - [ ] Troubleshoot common storage and permission issues
 - [ ] Explain the difference between ephemeral and persistent storage
@@ -20,14 +20,37 @@ Today we're completing a **full-stack Task Tracker application**:
 - **Flask API** with real CRUD operations connected to PostgreSQL
 - **RBAC controls** to demonstrate permission management
 - **Web Frontend** (nginx) for visual interaction via browser
+- **Ingress** for external access (continuity from Day 3)
 
 **Architecture Evolution:**
 ```
-Day 3: [Ingress] → [nginx] + [httpbin mock]
-                         ↓
-Day 4: [Browser] → [Frontend nginx] → [Flask API] → [PostgreSQL + PVC]
-                    (port-forward)     (ClusterIP)    (with Secret)
+Day 3: [Ingress capstone.local] → [web-service] + [api-service (httpbin)]
+                                       ↓
+Day 4: [Ingress capstone.local] → [web-service] + [api-service (Flask)] → [postgres]
+       (SAME INGRESS!)              (NEW UI)       (REAL API + PVC)          (NEW TIER)
 ```
+
+---
+
+## ⚠️ Coming from Day 3?
+
+**READ THIS FIRST**: [MIGRATION-FROM-DAY3.md](./MIGRATION-FROM-DAY3.md)
+
+**Quick transition**:
+```bash
+# Clean Day 3 mock services (Ingress stays!)
+kubectl delete deployment web-deployment api-deployment
+kubectl delete service web-service api-service
+
+# Apply Day 4 (uses same service names)
+cd day-04-storage-security/
+kubectl apply -f manifests/
+
+# Ingress still works!
+curl -H "Host: capstone.local" http://$(minikube ip)/
+```
+
+**What changed**: Backend implementation (httpbin → Flask+DB), service names UNCHANGED.
 
 ---
 
@@ -47,6 +70,10 @@ kubectl get sc
 # 3. Verify you can pull images
 docker pull ghcr.io/the-byte-sized/task-api:latest
 # Expected: Pull complete
+
+# 4. Verify Ingress controller from Day 3
+kubectl -n ingress-nginx get pods
+# Expected: ingress-nginx-controller Running
 ```
 
 **If any check fails**, see `troubleshooting.md` before proceeding.
@@ -93,7 +120,7 @@ kubectl describe pvc postgres-pvc
 # Common fix: Add storageClassName to manifest (see troubleshooting.md)
 ```
 
-**✅ Checkpoint 1:** Run `./verify.sh checkpoint1` (checks PVC Bound)
+**✅ Checkpoint 1:** PVC is Bound
 
 ---
 
@@ -105,14 +132,14 @@ kubectl apply -f manifests/03-deployment-postgres.yaml
 kubectl apply -f manifests/04-service-postgres.yaml
 
 # Wait for Pod to be Ready (may take 30-60 seconds)
-kubectl get pods -l app=database -w
+kubectl get pods -l app=postgres -w
 # Expected: STATUS=Running, READY=1/1
 
 # Check logs (should show "database system is ready")
-kubectl logs -l app=database --tail=20
+kubectl logs -l app=postgres --tail=20
 ```
 
-**✅ Checkpoint 2:** Run `./verify.sh checkpoint2` (checks Postgres running)
+**✅ Checkpoint 2:** Postgres Pod is Running
 
 ---
 
@@ -125,42 +152,43 @@ kubectl apply -f manifests/06-service-api.yaml
 
 # Wait for API to be Ready (may take 30s for image pull)
 kubectl get pods -l app=api -w
-# Expected: READY=1/1
+# Expected: READY=2/2
 
 # Check API logs
 kubectl logs -l app=api --tail=20
 # Expected: "Database schema initialized"
 ```
 
-**✅ Checkpoint 3:** Run `./verify.sh checkpoint3` (checks API health)
+**✅ Checkpoint 3:** API Pods are Running (2/2)
 
 ---
 
-### Step 5: Test CRUD Operations
+### Step 5: Test CRUD Operations via Ingress
 
 ```bash
-# Port-forward API for testing
-kubectl port-forward svc/task-api-service 8080:8080 &
-
-# Test health endpoint
-curl http://localhost:8080/api/health
+# Test API health via Ingress
+curl -H "Host: capstone.local" http://$(minikube ip)/api/health
 # Expected: {"status": "healthy", ...}
 
 # Create a task
-curl -X POST http://localhost:8080/api/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Learn Kubernetes PVC"}'
+curl -X POST -H "Host: capstone.local" -H "Content-Type: application/json" \
+  -d '{"title": "Learn Kubernetes PVC"}' \
+  http://$(minikube ip)/api/tasks
 # Expected: {"id": 1, "title": "Learn Kubernetes PVC", ...}
 
 # Get all tasks
-curl http://localhost:8080/api/tasks
+curl -H "Host: capstone.local" http://$(minikube ip)/api/tasks
 # Expected: [{"id": 1, "title": "Learn Kubernetes PVC", ...}]
+```
 
-# Kill port-forward
+**Alternative (if Ingress not working)**: Use port-forward:
+```bash
+kubectl port-forward svc/api-service 8080:80 &
+curl http://localhost:8080/api/health
 kill %1
 ```
 
-**⚠️ If you get connection errors:** See `troubleshooting.md` section "API Errors"
+**✅ Checkpoint 4:** Can create and retrieve tasks
 
 ---
 
@@ -170,18 +198,15 @@ This is the most important verification: **data must survive Pod deletion**.
 
 ```bash
 # Delete Postgres Pod (data should survive because of PVC)
-kubectl delete pod -l app=database
+kubectl delete pod -l app=postgres
 
 # Wait for new Pod to start (15-30 seconds)
-kubectl get pods -l app=database -w
+kubectl get pods -l app=postgres -w
 # Watch until STATUS=Running, READY=1/1
 
-# Port-forward and query tasks again
-kubectl port-forward svc/task-api-service 8080:8080 &
-curl http://localhost:8080/api/tasks
+# Query tasks again via Ingress
+curl -H "Host: capstone.local" http://$(minikube ip)/api/tasks
 # Expected: Same task still there! ✅
-
-kill %1
 ```
 
 **What just happened?**
@@ -255,7 +280,7 @@ kubectl delete pod $POD_NAME \
   --as=system:serviceaccount:default:readonly-sa
 
 # Expected error:
-# Error from server (Forbidden): pods "task-api-xxx" is forbidden: 
+# Error from server (Forbidden): pods "api-deployment-xxx" is forbidden: 
 # User "system:serviceaccount:default:readonly-sa" cannot delete resource "pods"
 ```
 
@@ -271,7 +296,7 @@ kubectl delete pod $POD_NAME \
 
 ---
 
-## Lab 4c: Web Frontend (30 minutes)
+## Lab 4c: Web Frontend + Ingress (30 minutes)
 
 ### Step 10: Deploy Frontend
 
@@ -284,36 +309,57 @@ kubectl apply -f manifests/09-service-web.yaml
 
 # Wait for frontend to be Ready
 kubectl get pods -l app=web -w
-# Expected: 2 Pods, both READY=1/1
+# Expected: 3 Pods, all READY=1/1
 
 # Verify service
-kubectl get svc task-web-service
+kubectl get svc web-service
 # Expected: TYPE=ClusterIP, PORT=80
 ```
 
 ---
 
-### Step 11: Access Frontend via Browser
+### Step 11: Deploy Ingress (if not from Day 3)
 
 ```bash
-# Port-forward to frontend
-kubectl port-forward svc/task-web-service 8081:80
+# Apply Ingress manifest (reuses Day 3 config)
+kubectl apply -f manifests/10-ingress.yaml
 
-# Keep terminal open, open browser in new tab/window
+# Verify Ingress created
+kubectl get ingress capstone-ingress
+# Expected: ADDRESS column populated with minikube IP
+
+# Wait for Ingress to be ready
+kubectl wait --for=condition=ready ingress capstone-ingress --timeout=60s
 ```
 
-**Open in browser**: [http://localhost:8081](http://localhost:8081)
+---
+
+### Step 12: Access Frontend via Ingress
+
+**One-time setup** (if not done in Day 3):
+```bash
+# Add to /etc/hosts
+echo "$(minikube ip) capstone.local" | sudo tee -a /etc/hosts
+```
+
+**Access in browser**: [http://capstone.local](http://capstone.local)
 
 **Expected**:
 - Page loads with purple gradient background
 - Title: "📝 Task Tracker"
 - Input field to add tasks
-- List of existing tasks (if any)
+- List of existing tasks (from Step 5)
 - Bottom shows: "Frontend (nginx) → API Service (Flask) → DB Service (PostgreSQL)"
+
+**Alternative (if Ingress not working)**: Use port-forward:
+```bash
+kubectl port-forward svc/web-service 8081:80
+# Then open: http://localhost:8081
+```
 
 ---
 
-### Step 12: Test Frontend Functionality
+### Step 13: Test Frontend Functionality
 
 **In the browser:**
 
@@ -324,19 +370,17 @@ kubectl port-forward svc/task-web-service 8081:80
 **Add more tasks:**
 - `Testare persistenza dati`
 - `Preparare per KCNA`
-- `Configurare Ingress (Day 5)`
+- `Configurare autoscaling (Day 5)`
 
 **All tasks should appear immediately with auto-refresh every 5 seconds.**
 
 ---
 
-### Step 13: Verify Multi-Tier Communication
+### Step 14: Verify Multi-Tier Communication
 
 **Test that frontend → API → DB works:**
 
 ```bash
-# In NEW terminal (keep port-forward running)
-
 # Check frontend logs (nginx)
 kubectl logs -l app=web --tail=20
 # Expected: HTTP GET/POST requests
@@ -346,7 +390,7 @@ kubectl logs -l app=api --tail=20
 # Expected: API requests with 200/201 status codes
 
 # Check database logs
-kubectl logs -l app=database --tail=20
+kubectl logs -l app=postgres --tail=20
 # Expected: SQL INSERT/SELECT queries
 ```
 
@@ -354,7 +398,7 @@ kubectl logs -l app=database --tail=20
 
 ---
 
-### Step 14: Test Persistence with Frontend
+### Step 15: Test Persistence with Frontend
 
 **The ultimate test - data survives pod restarts:**
 
@@ -376,42 +420,30 @@ kubectl delete pod -l app=api
 
 ---
 
-### Step 15: Verify Complete Stack
+### Step 16: Verify Complete Stack
 
 ```bash
 # See all components
-kubectl get all
+kubectl get all,pvc,ingress
 
 # Expected output:
 # - deployment/postgres (1/1)
-# - deployment/task-api (2/2)
-# - deployment/task-web (2/2)
+# - deployment/api-deployment (2/2)
+# - deployment/web-deployment (3/3)
 # - service/postgres-service (ClusterIP)
-# - service/task-api-service (ClusterIP)
-# - service/task-web-service (ClusterIP)
+# - service/api-service (ClusterIP)
+# - service/web-service (ClusterIP)
 # - persistentvolumeclaim/postgres-pvc (Bound)
+# - ingress/capstone-ingress (capstone.local)
 ```
 
 **✅ Lab 4c Complete When:**
-- [ ] Browser loads frontend at http://localhost:8081
+- [ ] Browser loads frontend at http://capstone.local
 - [ ] Can add tasks via UI
 - [ ] Tasks appear in real-time
 - [ ] Tasks persist after deleting API/DB pods
 - [ ] Logs show multi-tier communication
-
----
-
-## Final Verification
-
-Run the full verification script:
-
-```bash
-./verify.sh
-```
-
-**Expected output:** All checks pass ✅ (includes frontend check)
-
-If any check fails, see `troubleshooting.md` for solutions.
+- [ ] Ingress routing works for / and /api paths
 
 ---
 
@@ -425,6 +457,7 @@ If any check fails, see `troubleshooting.md` for solutions.
 ✅ **Backend**: Flask API with health checks and resource limits  
 ✅ **Frontend**: nginx serving web UI with API proxy  
 ✅ **Networking**: Services with DNS-based discovery  
+✅ **Ingress**: External access via capstone.local (Day 3 continuity)  
 ✅ **Observability**: Logs showing request flow across tiers  
 
 **Skills mastered today:**
@@ -432,7 +465,7 @@ If any check fails, see `troubleshooting.md` for solutions.
 - Configured Secrets for sensitive data
 - Integrated pre-built container images from ghcr.io
 - Tested multi-tier communication (web → API → DB)
-- Used port-forward for local access
+- Maintained Ingress continuity from Day 3
 - Verified persistence and auto-healing
 - Applied RBAC for security
 
@@ -461,10 +494,10 @@ Before moving to Day 5, make sure you can explain:
    RBAC denied: delete verb not in Role
 
 7. **How does frontend reach API?**  
-   nginx proxies `/api/*` to `task-api-service:8080` via DNS
+   Via Ingress routing /api to api-service:80
 
-8. **Why use ClusterIP instead of NodePort?**  
-   Internal communication only; Ingress will expose externally (Day 5)
+8. **Why keep same service names as Day 3?**  
+   Ingress rules unchanged, seamless transition
 
 ---
 
@@ -478,9 +511,9 @@ kubectl get pvc,pv,sc
 kubectl describe pvc postgres-pvc
 
 # Pod logs
-kubectl logs deploy/task-api --tail=50
+kubectl logs deploy/api-deployment --tail=50
 kubectl logs deploy/postgres --tail=50
-kubectl logs deploy/task-web --tail=50
+kubectl logs deploy/web-deployment --tail=50
 
 # Service connectivity
 kubectl get svc,endpoints
@@ -490,7 +523,10 @@ kubectl get sa,role,rolebinding
 kubectl describe rolebinding readonly-binding
 
 # Frontend to API connectivity test
-kubectl exec -it deploy/task-web -- wget -qO- http://task-api-service:8080/api/health
+kubectl exec -it deploy/web-deployment -- wget -qO- http://api-service/api/health
+
+# Ingress status
+kubectl describe ingress capstone-ingress
 
 # Recent events
 kubectl get events --sort-by='.lastTimestamp' | tail -20
@@ -504,7 +540,7 @@ See `troubleshooting.md` for detailed solutions to common issues:
 - PVC Pending (StorageClass missing)
 - API 500 errors (DB connection issues)
 - Frontend "Cannot connect to API" (Service discovery issues)
-- Port-forward "address already in use"
+- Ingress 404 / 502 errors
 - RBAC 403 (RoleBinding issues)
 
 **Quick frontend checks:**
@@ -513,18 +549,22 @@ See `troubleshooting.md` for detailed solutions to common issues:
 kubectl get pods -l app=web
 
 # Can frontend reach API?
-kubectl exec -it deploy/task-web -- wget -qO- http://task-api-service:8080/api/tasks
+kubectl exec -it deploy/web-deployment -- wget -qO- http://api-service/api/tasks
 
 # Check nginx logs
 kubectl logs -l app=web --tail=30
+
+# Test Ingress routing
+curl -H "Host: capstone.local" http://$(minikube ip)/
+curl -H "Host: capstone.local" http://$(minikube ip)/api/health
 ```
 
 ---
 
 ## What's Next (Day 5)
 
-Tomorrow we'll add:
-- **Ingress**: Expose frontend with domain name (no more port-forward!)
+Tomorrow we'll enhance the existing application:
+- **Ingress evolution**: Already working! Day 5 adds TLS/HTTPS
 - **Observability**: Logs aggregation, metrics (`kubectl top`)
 - **Autoscaling**: HorizontalPodAutoscaler (HPA)
 
@@ -532,11 +572,11 @@ The `resources` and `readinessProbe` we added today will be crucial for autoscal
 
 **Preview of Day 5:**
 ```bash
-# Instead of:
-kubectl port-forward svc/task-web-service 8081:80
+# Current:
+http://capstone.local
 
-# You'll access via:
-http://tasktracker.local  # Through Ingress!
+# Day 5:
+https://capstone.local  # With TLS certificate!
 ```
 
 ---
@@ -549,16 +589,19 @@ http://tasktracker.local  # Through Ingress!
 - [RBAC Authorization](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
 - [Services](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/)
 
 ### KCNA Alignment
-- **Kubernetes Fundamentals (46%)**: Storage, Services, multi-tier apps
+- **Kubernetes Fundamentals (46%)**: Storage, Services, multi-tier apps, Ingress
 - **Cloud Native Architecture (16%)**: Microservices, separation of concerns
 - **Container Orchestration (22%)**: StatefulSets concepts, self-healing
+
+### Migration Guide
+- **Day 3 to Day 4**: [MIGRATION-FROM-DAY3.md](./MIGRATION-FROM-DAY3.md)
 
 ### Source Code
 - **API Source**: `docs/api-source/` (Flask implementation)
 - **Frontend Source**: `docs/web-source/` (HTML/CSS/JS + nginx)
 
 ### Detailed Lab Guides
-- **Frontend detailed guide**: `lab-frontend.md`
 - **Troubleshooting guide**: `troubleshooting.md`
