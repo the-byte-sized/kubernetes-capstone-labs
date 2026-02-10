@@ -2,7 +2,7 @@
 set -e
 
 # Day 4 Verification Script
-# Checks PVC, Postgres, API, Frontend, and RBAC configuration
+# Checks PVC, Postgres, API, Frontend, Ingress, and RBAC configuration
 
 CHECKPOINT=${1:-full}
 
@@ -26,14 +26,14 @@ check_pvc_bound() {
 
 check_postgres_running() {
     echo "✓ Checking Postgres is running..."
-    READY=$(kubectl get pods -l app=database -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+    READY=$(kubectl get pods -l app=postgres -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
     if [ "$READY" = "true" ]; then
         echo "  ✅ Postgres Pod ready"
         return 0
     else
         echo "  ❌ Postgres not ready"
-        echo "  → Run: kubectl get pods -l app=database"
-        echo "  → Run: kubectl logs -l app=database"
+        echo "  → Run: kubectl get pods -l app=postgres"
+        echo "  → Run: kubectl logs -l app=postgres"
         return 1
     fi
 }
@@ -41,14 +41,23 @@ check_postgres_running() {
 check_api_health() {
     echo "✓ Checking API health..."
     
-    # Port-forward in background
-    kubectl port-forward svc/task-api-service 8080:8080 > /dev/null 2>&1 &
+    # Try Ingress first
+    MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "")
+    if [ -n "$MINIKUBE_IP" ]; then
+        if curl -sf -H "Host: capstone.local" "http://$MINIKUBE_IP/api/health" > /dev/null 2>&1; then
+            echo "  ✅ API responding via Ingress"
+            return 0
+        fi
+    fi
+    
+    # Fallback to port-forward
+    echo "  ⚠️ Ingress test failed, trying port-forward..."
+    kubectl port-forward svc/api-service 8080:80 > /dev/null 2>&1 &
     PF_PID=$!
     sleep 2
     
-    # Test health endpoint
     if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then
-        echo "  ✅ API responding"
+        echo "  ✅ API responding via port-forward"
         kill $PF_PID 2>/dev/null || true
         return 0
     else
@@ -66,13 +75,45 @@ check_frontend_running() {
     READY=$(kubectl get pods -l app=web -o jsonpath='{.items[*].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
     READY_COUNT=$(echo "$READY" | grep -o "true" | wc -l)
     
-    if [ "$READY_COUNT" -ge 2 ]; then
-        echo "  ✅ Frontend Pods ready ($READY_COUNT/2)"
+    if [ "$READY_COUNT" -ge 3 ]; then
+        echo "  ✅ Frontend Pods ready ($READY_COUNT/3)"
         return 0
     else
-        echo "  ❌ Frontend not ready"
+        echo "  ❌ Frontend not ready (found $READY_COUNT, expected 3)"
         echo "  → Run: kubectl get pods -l app=web"
         echo "  → Run: kubectl logs -l app=web"
+        return 1
+    fi
+}
+
+check_ingress() {
+    echo "✓ Checking Ingress is configured..."
+    ADDRESS=$(kubectl get ingress capstone-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    
+    if [ -n "$ADDRESS" ]; then
+        echo "  ✅ Ingress has ADDRESS: $ADDRESS"
+        
+        # Test web route
+        MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "$ADDRESS")
+        if curl -sf -H "Host: capstone.local" "http://$MINIKUBE_IP/" | grep -q "Task Tracker" 2>/dev/null; then
+            echo "  ✅ Ingress / route works"
+        else
+            echo "  ⚠️ Ingress / route may not be ready yet"
+        fi
+        
+        # Test API route
+        if curl -sf -H "Host: capstone.local" "http://$MINIKUBE_IP/api/health" > /dev/null 2>&1; then
+            echo "  ✅ Ingress /api route works"
+        else
+            echo "  ⚠️ Ingress /api route may not be ready yet"
+        fi
+        
+        return 0
+    else
+        echo "  ❌ Ingress not ready (no ADDRESS)"
+        echo "  → Run: kubectl get ingress capstone-ingress"
+        echo "  → Run: kubectl describe ingress capstone-ingress"
+        echo "  → See troubleshooting.md section 'Ingress Not Ready'"
         return 1
     fi
 }
@@ -87,14 +128,14 @@ check_frontend_api_connectivity() {
         return 1
     fi
     
-    RESULT=$(kubectl exec "$POD" -- wget -qO- http://task-api-service:8080/api/health 2>/dev/null || echo "FAILED")
+    RESULT=$(kubectl exec "$POD" -- wget -qO- http://api-service/api/health 2>/dev/null || echo "FAILED")
     if echo "$RESULT" | grep -q "healthy"; then
-        echo "  ✅ Frontend can reach API"
+        echo "  ✅ Frontend can reach API (internal DNS)"
         return 0
     else
         echo "  ❌ Frontend cannot reach API"
-        echo "  → Run: kubectl get svc task-api-service"
-        echo "  → Run: kubectl get endpoints task-api-service"
+        echo "  → Run: kubectl get svc api-service"
+        echo "  → Run: kubectl get endpoints api-service"
         echo "  → See troubleshooting.md section 'Frontend Cannot Connect'"
         return 1
     fi
@@ -132,7 +173,7 @@ case $CHECKPOINT in
         check_pvc_bound && check_postgres_running && check_api_health
         ;;
     checkpoint4)
-        check_pvc_bound && check_postgres_running && check_api_health && check_frontend_running && check_frontend_api_connectivity
+        check_pvc_bound && check_postgres_running && check_api_health && check_frontend_running && check_ingress && check_frontend_api_connectivity
         ;;
     full)
         FAILED=0
@@ -143,6 +184,8 @@ case $CHECKPOINT in
         check_api_health || FAILED=1
         echo ""
         check_frontend_running || FAILED=1
+        echo ""
+        check_ingress || FAILED=1
         echo ""
         check_frontend_api_connectivity || FAILED=1
         echo ""
@@ -158,16 +201,24 @@ case $CHECKPOINT in
             echo "  - Deployed persistent storage with PVC"
             echo "  - Connected API to Postgres database"
             echo "  - Deployed web frontend with nginx"
+            echo "  - Configured Ingress for external access"
             echo "  - Verified multi-tier connectivity"
             echo "  - Configured RBAC permissions"
             echo ""
-            echo "Next: Test the complete stack:"
-            echo "  kubectl port-forward svc/task-web-service 8081:80"
-            echo "  # Open http://localhost:8081 in browser"
-            echo "  # Add tasks via UI and verify they appear"
+            MINIKUBE_IP=$(minikube ip 2>/dev/null || echo "<minikube-ip>")
+            echo "Next: Test the complete stack via Ingress:"
+            echo "  # Add to /etc/hosts if not already done:"
+            echo "  echo \"$MINIKUBE_IP capstone.local\" | sudo tee -a /etc/hosts"
+            echo ""
+            echo "  # Open in browser:"
+            echo "  http://capstone.local"
+            echo ""
+            echo "  # Or test via curl:"
+            echo "  curl -H \"Host: capstone.local\" http://$MINIKUBE_IP/"
+            echo "  curl -H \"Host: capstone.local\" http://$MINIKUBE_IP/api/tasks"
             echo ""
             echo "Then test persistence:"
-            echo "  kubectl delete pod -l app=database"
+            echo "  kubectl delete pod -l app=postgres"
             echo "  # Wait 30s, refresh browser"
             echo "  # Tasks should still be there!"
         else
@@ -185,7 +236,7 @@ case $CHECKPOINT in
         echo "  checkpoint1 - PVC bound"
         echo "  checkpoint2 - Postgres running"
         echo "  checkpoint3 - API healthy"
-        echo "  checkpoint4 - Frontend running and connected"
+        echo "  checkpoint4 - Frontend, Ingress, and connectivity"
         echo "  full        - All checks (default)"
         exit 1
         ;;
