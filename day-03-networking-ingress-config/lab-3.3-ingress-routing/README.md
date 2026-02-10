@@ -73,31 +73,33 @@ Client (curl/browser)
 
 ## 🧪 Lab Steps
 
-### Step 1: Create Ingress manifest skeleton
+### Step 1: Create Ingress manifest
 
-Create a file `capstone-ingress.yaml` with the following skeleton:
+Use the provided `capstone-ingress.yaml` manifest in this directory, or create your own:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: capstone-ingress
+  labels:
+    app: capstone
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  ingressClassName: nginx  # May be optional if default is set
+  ingressClassName: nginx
   rules:
   - host: capstone.local
     http:
       paths:
-      - path: /?(.*)
+      - path: /
         pathType: Prefix
         backend:
           service:
             name: web-service
             port:
               number: 80
-      - path: /api/?(.*)
+      - path: /api
         pathType: Prefix
         backend:
           service:
@@ -106,15 +108,17 @@ spec:
               number: 80
 ```
 
-> Note: The `rewrite-target` annotation and regex paths are one common pattern. You can also keep simpler paths (e.g., `/` and `/api`) if your backend apps handle paths as-is.
-
-**Minimum version:** This lab assumes Kubernetes `networking.k8s.io/v1` Ingress API.
+**Key points:**
+- `ingressClassName: nginx` → uses the ingress-nginx controller from Lab 3.2
+- `host: capstone.local` → virtual host for routing
+- Two path rules: `/` → web, `/api` → api
+- `rewrite-target` annotation removes path prefix when forwarding to backend
 
 ---
 
 ### Step 2: Apply the Ingress
 
-Apply the manifest in the same namespace as your Services (e.g., `default` or `capstone`):
+Apply the manifest in the same namespace as your Services (default or capstone):
 
 ```bash
 kubectl apply -f capstone-ingress.yaml
@@ -186,8 +190,6 @@ curl -H "Host: capstone.local" http://$MINIKUBE_IP/
 
 **Expected:**
 - Response from web tier (nginx), e.g., HTML or a custom page.
-
-If you configured the `rewrite-target` pattern, ensure your web content is still served correctly at `/`.
 
 If using `/etc/hosts`, you can also test:
 
