@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: capstone
   labels:
     app: postgres
     tier: database
+    component: capstone
 spec:
   replicas: 1
   selector:
@@ -16,6 +16,7 @@ spec:
       labels:
         app: postgres
         tier: database
+        component: capstone
     spec:
       containers:
       - name: postgres
