@@ -1,12 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: task-web
+  name: web-deployment
   labels:
     app: web
     tier: frontend
+    component: capstone
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: web
@@ -16,6 +17,7 @@ spec:
       labels:
         app: web
         tier: frontend
+        component: capstone
     spec:
       containers:
       - name: nginx
