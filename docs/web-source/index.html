@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Tracker - Kubernetes Lab</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .add-task {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .add-task input {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .add-task input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .add-task button {
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .add-task button:hover {
+            background: #5568d3;
+        }
+        
+        .add-task button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .task-list {
+            list-style: none;
+        }
+        
+        .task-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.2s;
+        }
+        
+        .task-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .task-item:last-child {
+            border-bottom: none;
+        }
+        
+        .task-id {
+            font-weight: 600;
+            color: #667eea;
+            min-width: 40px;
+        }
+        
+        .task-title {
+            flex: 1;
+            font-size: 16px;
+            color: #333;
+        }
+        
+        .task-time {
+            font-size: 14px;
+            color: #999;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .k8s-info {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .k8s-info strong {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📝 Task Tracker</h1>
+            <p>Kubernetes Multi-Tier Application Demo</p>
+        </div>
+        
+        <div class="card">
+            <div id="status"></div>
+            
+            <div class="add-task">
+                <input 
+                    type="text" 
+                    id="taskInput" 
+                    placeholder="Inserisci una nuova task..."
+                    onkeypress="if(event.key==='Enter') addTask()"
+                >
+                <button onclick="addTask()" id="addButton">Aggiungi</button>
+            </div>
+            
+            <ul class="task-list" id="taskList"></ul>
+        </div>
+        
+        <div class="k8s-info">
+            <strong>🔧 Kubernetes Lab Context:</strong><br>
+            Frontend (nginx) → API Service (Flask) → DB Service (PostgreSQL)<br>
+            API Endpoint: <span id="apiEndpoint">Loading...</span>
+        </div>
+    </div>
+
+    <script>
+        // Configurazione API (proxy nginx passa a task-api-service)
+        const API_BASE_URL = '/api';
+        
+        document.getElementById('apiEndpoint').textContent = API_BASE_URL;
+        
+        // Carica tasks all'avvio
+        loadTasks();
+        
+        // Auto-refresh ogni 5 secondi
+        setInterval(loadTasks, 5000);
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
+        }
+        
+        async function loadTasks() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/tasks`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const tasks = await response.json();
+                renderTasks(tasks);
+                
+            } catch (error) {
+                console.error('Error loading tasks:', error);
+                document.getElementById('taskList').innerHTML = `
+                    <div class="empty-state">
+                        <p>⚠️ Impossibile connettersi all'API</p>
+                        <p style="font-size: 12px; margin-top: 10px;">
+                            Verifica che il Service API sia raggiungibile:<br>
+                            <code>${API_BASE_URL}/tasks</code>
+                        </p>
+                    </div>
+                `;
+            }
+        }
+        
+        async function addTask() {
+            const input = document.getElementById('taskInput');
+            const button = document.getElementById('addButton');
+            const title = input.value.trim();
+            
+            if (!title) {
+                showStatus('⚠️ Inserisci un titolo per la task', 'error');
+                return;
+            }
+            
+            button.disabled = true;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/tasks`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const newTask = await response.json();
+                
+                input.value = '';
+                showStatus('✅ Task creata con successo!', 'success');
+                loadTasks();
+                
+            } catch (error) {
+                console.error('Error adding task:', error);
+                showStatus('❌ Errore nella creazione della task', 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+        
+        function renderTasks(tasks) {
+            const taskList = document.getElementById('taskList');
+            
+            if (tasks.length === 0) {
+                taskList.innerHTML = `
+                    <div class="empty-state">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                            </path>
+                        </svg>
+                        <p>Nessuna task presente</p>
+                        <p style="font-size: 14px; margin-top: 10px; opacity: 0.7;">
+                            Aggiungi la prima task per iniziare!
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+            
+            taskList.innerHTML = tasks.map(task => `
+                <li class="task-item">
+                    <span class="task-id">#${task.id}</span>
+                    <span class="task-title">${escapeHtml(task.title)}</span>
+                    <span class="task-time">${formatDate(task.created_at)}</span>
+                </li>
+            `).join('');
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return date.toLocaleString('it-IT', { 
+                day: '2-digit', 
+                month: '2-digit', 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
