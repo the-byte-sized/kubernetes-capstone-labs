@@ -32,7 +32,7 @@ kubectl run test-api --image=curlimages/curl:8.11.1 --rm -it --restart=Never -- 
 
 ### Step A1: Add readinessProbe to api-deployment
 
-Create or edit `api-with-probes.yaml` starting from this skeleton:
+Use the provided `api-with-probes.yaml` manifest that includes both readiness and liveness probes (final good configuration):
 
 ```yaml
 apiVersion: apps/v1
@@ -62,9 +62,15 @@ spec:
             port: 80
           initialDelaySeconds: 5
           periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /status/200
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
 ```
 
-Apply:
+**Start by applying only readiness** (you can temporarily comment out livenessProbe for Part A):
 
 ```bash
 kubectl apply -f api-with-probes.yaml
@@ -86,7 +92,7 @@ In another terminal:
 
 ```bash
 # Watch EndpointSlices for api-service
-kubectl get endpointslice -l kubernetes.io/service-name=api-service -w
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -w
 ```
 
 **Expected lifecycle:**
@@ -120,23 +126,12 @@ This shows how readiness protects your Service from sending traffic to not-yet-r
 
 ### Step B1: Add livenessProbe with wrong path
 
-Edit `api-with-probes.yaml` and add livenessProbe:
+Edit `api-with-probes.yaml` temporarily and change livenessProbe path to something wrong:
 
 ```yaml
-      containers:
-      - name: httpbin
-        image: kennethreitz/httpbin:latest
-        ports:
-        - containerPort: 80
-        readinessProbe:
-          httpGet:
-            path: /get
-            port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
         livenessProbe:
           httpGet:
-            path: /wrong-path
+            path: /wrong-path  # INTENTIONALLY WRONG
             port: 80
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -186,12 +181,12 @@ kubectl logs $API_POD --tail=20
 
 ### Step B3: Fix livenessProbe
 
-Correct the livenessProbe path to use `/status/200` (valid endpoint in httpbin) or `/get`:
+Restore the correct livenessProbe path using the provided `api-with-probes.yaml` (good configuration):
 
 ```yaml
         livenessProbe:
           httpGet:
-            path: /status/200
+            path: /status/200  # CORRECT
             port: 80
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -228,7 +223,7 @@ Apply and watch endpoints:
 kubectl apply -f api-with-probes.yaml
 kubectl rollout status deployment api-deployment
 
-kubectl get endpointslice -l kubernetes.io/service-name=api-service -o yaml
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml
 ```
 
 **Observation:**
@@ -237,7 +232,7 @@ kubectl get endpointslice -l kubernetes.io/service-name=api-service -o yaml
 
 ### Step C2: Restore readinessProbe (good configuration)
 
-Final good configuration:
+Final good configuration from provided `api-with-probes.yaml`:
 
 ```yaml
         readinessProbe:
@@ -261,7 +256,7 @@ kubectl apply -f api-with-probes.yaml
 kubectl rollout status deployment api-deployment
 
 kubectl get pods -l app=api
-kubectl get endpointslice -l kubernetes.io/service-name=api-service -o yaml | grep -A5 endpoints:
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml | grep -A5 endpoints:
 ```
 
 **Expected:**

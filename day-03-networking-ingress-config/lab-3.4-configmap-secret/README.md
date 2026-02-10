@@ -33,7 +33,7 @@ kubectl get pods -o wide
 
 ### Step A1: Create ConfigMap with a simple message
 
-Create `web-config.yaml`:
+Use the provided `web-config.yaml` manifest in this directory:
 
 ```yaml
 apiVersion: v1
@@ -71,7 +71,7 @@ kubectl describe configmap web-config
 
 We will mount the `message` key as a file inside the web container.
 
-Edit or create `web-deployment-with-config.yaml` starting from this skeleton:
+Use the provided `web-deployment-with-config.yaml` manifest:
 
 ```yaml
 apiVersion: apps/v1
@@ -143,7 +143,7 @@ At this point, the web component can read configuration from the filesystem rath
 
 ### Step B1: Create Secret with API token
 
-Create `api-secret.yaml`:
+Use the provided `api-secret.yaml` manifest:
 
 ```yaml
 apiVersion: v1
@@ -182,7 +182,7 @@ kubectl describe secret api-secret
 
 ### Step B2: Inject Secret as env var into api Pod
 
-Create or edit `api-deployment-with-secret.yaml` starting from this skeleton:
+Use the provided `api-deployment-with-secret.yaml` manifest:
 
 ```yaml
 apiVersion: apps/v1
