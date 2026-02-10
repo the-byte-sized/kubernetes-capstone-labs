@@ -1,4 +1,4 @@
-# Day 4: Persistent Storage + Security (RBAC)
+# Day 4: Persistent Storage + Security (RBAC) + Frontend
 
 ## Learning Objectives
 
@@ -7,22 +7,26 @@ By the end of this lab, you will be able to:
 - [ ] Verify that data survives Pod restart
 - [ ] Configure applications using Secrets for credentials
 - [ ] Create RBAC policies with ServiceAccount, Role, and RoleBinding
+- [ ] Deploy a multi-tier application with web frontend
+- [ ] Test the complete stack via browser interface
 - [ ] Troubleshoot common storage and permission issues
 - [ ] Explain the difference between ephemeral and persistent storage
 
 ## What We're Building
 
-Today we're adding a **PostgreSQL database** to our Task Tracker application. This requires:
+Today we're completing a **full-stack Task Tracker application**:
 - **Persistent storage** (PVC) so data survives Pod deletions
 - **Secret** for database credentials (password, user, database name)
-- **New Flask API** that replaces yesterday's mock httpbin with real CRUD operations
+- **Flask API** with real CRUD operations connected to PostgreSQL
 - **RBAC controls** to demonstrate permission management
+- **Web Frontend** (nginx) for visual interaction via browser
 
 **Architecture Evolution:**
 ```
 Day 3: [Ingress] → [nginx] + [httpbin mock]
                          ↓
-Day 4: [Ingress] → [nginx] + [Flask API] → [PostgreSQL + PVC]
+Day 4: [Browser] → [Frontend nginx] → [Flask API] → [PostgreSQL + PVC]
+                    (port-forward)     (ClusterIP)    (with Secret)
 ```
 
 ---
@@ -32,17 +36,17 @@ Day 4: [Ingress] → [nginx] + [Flask API] → [PostgreSQL + PVC]
 **Run these commands before starting:**
 
 ```bash
-# 1. Verify Day 3 is complete
-kubectl get deploy,svc,ingress -n capstone
-# Expected: web, api, capstone-ingress present
+# 1. Verify minikube is running
+minikube status
+# Expected: host/kubelet/apiserver Running
 
 # 2. Verify StorageClass exists
 kubectl get sc
 # Expected: At least one StorageClass (usually 'standard')
 
-# 3. Test Ingress works
-curl http://capstone.local/api/uuid
-# Expected: JSON response from httpbin
+# 3. Verify you can pull images
+docker pull ghcr.io/the-byte-sized/task-api:latest
+# Expected: Pull complete
 ```
 
 **If any check fails**, see `troubleshooting.md` before proceeding.
@@ -58,7 +62,7 @@ We're adding PostgreSQL to store tasks persistently. The database needs:
 - **PVC** for persistent storage (data survives Pod deletion)
 - **Service** for internal DNS (API finds DB at `postgres-service:5432`)
 
-The API will replace yesterday's httpbin with a real Flask application that performs CRUD operations.
+The API is a Flask application that performs CRUD operations on PostgreSQL.
 
 ---
 
@@ -71,20 +75,20 @@ cd day-04-storage-security/
 kubectl apply -f manifests/01-secret-postgres.yaml
 
 # Verify Secret created
-kubectl get secret postgres-secret -n capstone
+kubectl get secret postgres-secret
 # Expected: NAME=postgres-secret, TYPE=Opaque
 
 # Create PVC (may take 10-30 seconds to bind)
 kubectl apply -f manifests/02-pvc-postgres.yaml
 
 # Watch PVC status (Ctrl+C when Bound)
-kubectl get pvc -n capstone -w
+kubectl get pvc -w
 # Expected: STATUS changes from Pending → Bound
 ```
 
 **⚠️ If PVC stays Pending > 1 minute:**
 ```bash
-kubectl describe pvc postgres-pvc -n capstone
+kubectl describe pvc postgres-pvc
 # Read Events section for the cause
 # Common fix: Add storageClassName to manifest (see troubleshooting.md)
 ```
@@ -101,37 +105,30 @@ kubectl apply -f manifests/03-deployment-postgres.yaml
 kubectl apply -f manifests/04-service-postgres.yaml
 
 # Wait for Pod to be Ready (may take 30-60 seconds)
-kubectl get pods -n capstone -l app=postgres -w
+kubectl get pods -l app=database -w
 # Expected: STATUS=Running, READY=1/1
 
 # Check logs (should show "database system is ready")
-kubectl logs -n capstone -l app=postgres --tail=20
+kubectl logs -l app=database --tail=20
 ```
 
 **✅ Checkpoint 2:** Run `./verify.sh checkpoint2` (checks Postgres running)
 
 ---
 
-### Step 4: Replace Mock API with Real Flask API
-
-We're replacing yesterday's httpbin mock with a real API that connects to PostgreSQL.
+### Step 4: Deploy Flask API
 
 ```bash
-# Remove old httpbin API
-kubectl delete deploy api -n capstone
-
-# Deploy new Flask API
+# Deploy Flask API
 kubectl apply -f manifests/05-deployment-api.yaml
-
-# Service name stays the same (Ingress doesn't change)
 kubectl apply -f manifests/06-service-api.yaml
 
 # Wait for API to be Ready (may take 30s for image pull)
-kubectl get pods -n capstone -l app=api -w
+kubectl get pods -l app=api -w
 # Expected: READY=1/1
 
 # Check API logs
-kubectl logs -n capstone -l app=api --tail=20
+kubectl logs -l app=api --tail=20
 # Expected: "Database schema initialized"
 ```
 
@@ -142,31 +139,28 @@ kubectl logs -n capstone -l app=api --tail=20
 ### Step 5: Test CRUD Operations
 
 ```bash
+# Port-forward API for testing
+kubectl port-forward svc/task-api-service 8080:8080 &
+
 # Test health endpoint
-curl http://capstone.local/api/health
-# Expected: {"status": "ok"}
+curl http://localhost:8080/api/health
+# Expected: {"status": "healthy", ...}
 
 # Create a task
-curl -X POST http://capstone.local/api/tasks \
+curl -X POST http://localhost:8080/api/tasks \
   -H "Content-Type: application/json" \
   -d '{"title": "Learn Kubernetes PVC"}'
-# Expected: {"id": 1, "title": "Learn Kubernetes PVC", "created_at": "..."}
+# Expected: {"id": 1, "title": "Learn Kubernetes PVC", ...}
 
 # Get all tasks
-curl http://capstone.local/api/tasks
+curl http://localhost:8080/api/tasks
 # Expected: [{"id": 1, "title": "Learn Kubernetes PVC", ...}]
 
-# Create another task
-curl -X POST http://capstone.local/api/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Verify persistence works"}'
-
-# Verify both tasks exist
-curl http://capstone.local/api/tasks
-# Expected: Array with 2 tasks
+# Kill port-forward
+kill %1
 ```
 
-**⚠️ If you get 404 or 500:** See `troubleshooting.md` section "API Errors"
+**⚠️ If you get connection errors:** See `troubleshooting.md` section "API Errors"
 
 ---
 
@@ -176,15 +170,18 @@ This is the most important verification: **data must survive Pod deletion**.
 
 ```bash
 # Delete Postgres Pod (data should survive because of PVC)
-kubectl delete pod -n capstone -l app=postgres
+kubectl delete pod -l app=database
 
 # Wait for new Pod to start (15-30 seconds)
-kubectl get pods -n capstone -l app=postgres -w
+kubectl get pods -l app=database -w
 # Watch until STATUS=Running, READY=1/1
 
-# Query tasks again
-curl http://capstone.local/api/tasks
-# Expected: Same 2 tasks still there! ✅
+# Port-forward and query tasks again
+kubectl port-forward svc/task-api-service 8080:8080 &
+curl http://localhost:8080/api/tasks
+# Expected: Same task still there! ✅
+
+kill %1
 ```
 
 **What just happened?**
@@ -213,7 +210,7 @@ We'll create a ServiceAccount with **read-only** permissions on Pods and Service
 kubectl apply -f manifests/07-rbac-readonly.yaml
 
 # Verify resources created
-kubectl get sa,role,rolebinding -n capstone
+kubectl get sa,role,rolebinding
 # Expected: readonly-sa, readonly-role, readonly-binding
 ```
 
@@ -228,18 +225,18 @@ kubectl get sa,role,rolebinding -n capstone
 
 ```bash
 # Test allowed action: get pods (should say "yes")
-kubectl auth can-i get pods -n capstone \
-  --as=system:serviceaccount:capstone:readonly-sa
+kubectl auth can-i get pods \
+  --as=system:serviceaccount:default:readonly-sa
 # Expected: yes
 
 # Test allowed action: list services (should say "yes")
-kubectl auth can-i list services -n capstone \
-  --as=system:serviceaccount:capstone:readonly-sa
+kubectl auth can-i list services \
+  --as=system:serviceaccount:default:readonly-sa
 # Expected: yes
 
 # Test forbidden action: delete pods (should say "no")
-kubectl auth can-i delete pods -n capstone \
-  --as=system:serviceaccount:capstone:readonly-sa
+kubectl auth can-i delete pods \
+  --as=system:serviceaccount:default:readonly-sa
 # Expected: no ✅
 ```
 
@@ -251,15 +248,15 @@ Let's actually **try** to delete a Pod as this ServiceAccount (it will fail as e
 
 ```bash
 # Get a Pod name
-POD_NAME=$(kubectl get pods -n capstone -l app=api -o jsonpath='{.items[0].metadata.name}')
+POD_NAME=$(kubectl get pods -l app=api -o jsonpath='{.items[0].metadata.name}')
 
 # Try to delete it as readonly-sa (should get 403 Forbidden)
-kubectl delete pod $POD_NAME -n capstone \
-  --as=system:serviceaccount:capstone:readonly-sa
+kubectl delete pod $POD_NAME \
+  --as=system:serviceaccount:default:readonly-sa
 
 # Expected error:
-# Error from server (Forbidden): pods "api-xxx" is forbidden: 
-# User "system:serviceaccount:capstone:readonly-sa" cannot delete resource "pods"
+# Error from server (Forbidden): pods "task-api-xxx" is forbidden: 
+# User "system:serviceaccount:default:readonly-sa" cannot delete resource "pods"
 ```
 
 **Why is this useful?**
@@ -274,6 +271,136 @@ kubectl delete pod $POD_NAME -n capstone \
 
 ---
 
+## Lab 4c: Web Frontend (30 minutes)
+
+### Step 10: Deploy Frontend
+
+Now we add a **visual interface** so you can interact with the application in a browser!
+
+```bash
+# Deploy frontend nginx + service
+kubectl apply -f manifests/08-deployment-web.yaml
+kubectl apply -f manifests/09-service-web.yaml
+
+# Wait for frontend to be Ready
+kubectl get pods -l app=web -w
+# Expected: 2 Pods, both READY=1/1
+
+# Verify service
+kubectl get svc task-web-service
+# Expected: TYPE=ClusterIP, PORT=80
+```
+
+---
+
+### Step 11: Access Frontend via Browser
+
+```bash
+# Port-forward to frontend
+kubectl port-forward svc/task-web-service 8081:80
+
+# Keep terminal open, open browser in new tab/window
+```
+
+**Open in browser**: [http://localhost:8081](http://localhost:8081)
+
+**Expected**:
+- Page loads with purple gradient background
+- Title: "📝 Task Tracker"
+- Input field to add tasks
+- List of existing tasks (if any)
+- Bottom shows: "Frontend (nginx) → API Service (Flask) → DB Service (PostgreSQL)"
+
+---
+
+### Step 12: Test Frontend Functionality
+
+**In the browser:**
+
+1. **Type** in input field: `Deploy frontend completato`
+2. **Click** "Aggiungi" button
+3. **Observe**: Task appears in list with ID and timestamp
+
+**Add more tasks:**
+- `Testare persistenza dati`
+- `Preparare per KCNA`
+- `Configurare Ingress (Day 5)`
+
+**All tasks should appear immediately with auto-refresh every 5 seconds.**
+
+---
+
+### Step 13: Verify Multi-Tier Communication
+
+**Test that frontend → API → DB works:**
+
+```bash
+# In NEW terminal (keep port-forward running)
+
+# Check frontend logs (nginx)
+kubectl logs -l app=web --tail=20
+# Expected: HTTP GET/POST requests
+
+# Check API logs (Flask)
+kubectl logs -l app=api --tail=20
+# Expected: API requests with 200/201 status codes
+
+# Check database logs
+kubectl logs -l app=database --tail=20
+# Expected: SQL INSERT/SELECT queries
+```
+
+**Key observation**: Logs show full request flow across all tiers!
+
+---
+
+### Step 14: Test Persistence with Frontend
+
+**The ultimate test - data survives pod restarts:**
+
+```bash
+# Delete API pod while watching browser
+kubectl delete pod -l app=api
+
+# In browser: You'll see "⚠️ Impossibile connettersi all'API" for ~10 seconds
+# Then: Tasks reappear automatically when new pod is ready
+
+# Add a new task in browser to confirm API is back
+```
+
+**What you just proved:**
+- Frontend detected API failure
+- Kubernetes auto-healed (recreated pod)
+- Data persisted in PostgreSQL
+- Application recovered automatically
+
+---
+
+### Step 15: Verify Complete Stack
+
+```bash
+# See all components
+kubectl get all
+
+# Expected output:
+# - deployment/postgres (1/1)
+# - deployment/task-api (2/2)
+# - deployment/task-web (2/2)
+# - service/postgres-service (ClusterIP)
+# - service/task-api-service (ClusterIP)
+# - service/task-web-service (ClusterIP)
+# - persistentvolumeclaim/postgres-pvc (Bound)
+```
+
+**✅ Lab 4c Complete When:**
+- [ ] Browser loads frontend at http://localhost:8081
+- [ ] Can add tasks via UI
+- [ ] Tasks appear in real-time
+- [ ] Tasks persist after deleting API/DB pods
+- [ ] Logs show multi-tier communication
+
+---
+
 ## Final Verification
 
 Run the full verification script:
@@ -282,9 +409,32 @@ Run the full verification script:
 ./verify.sh
 ```
 
-**Expected output:** All checks pass ✅
+**Expected output:** All checks pass ✅ (includes frontend check)
 
 If any check fails, see `troubleshooting.md` for solutions.
+
+---
+
+## Day 4 Definition of Done
+
+**You have successfully built a complete multi-tier application:**
+
+✅ **Storage Layer**: PostgreSQL with 1Gi PVC (data persists)  
+✅ **Security**: Database credentials in Secret (not hardcoded)  
+✅ **Access Control**: RBAC with read-only ServiceAccount  
+✅ **Backend**: Flask API with health checks and resource limits  
+✅ **Frontend**: nginx serving web UI with API proxy  
+✅ **Networking**: Services with DNS-based discovery  
+✅ **Observability**: Logs showing request flow across tiers  
+
+**Skills mastered today:**
+- Deployed stateful workload with persistent storage
+- Configured Secrets for sensitive data
+- Integrated pre-built container images from ghcr.io
+- Tested multi-tier communication (web → API → DB)
+- Used port-forward for local access
+- Verified persistence and auto-healing
+- Applied RBAC for security
 
 ---
 
@@ -310,30 +460,40 @@ Before moving to Day 5, make sure you can explain:
 6. **Why did delete fail with 403?**  
    RBAC denied: delete verb not in Role
 
+7. **How does frontend reach API?**  
+   nginx proxies `/api/*` to `task-api-service:8080` via DNS
+
+8. **Why use ClusterIP instead of NodePort?**  
+   Internal communication only; Ingress will expose externally (Day 5)
+
 ---
 
 ## Quick Debug Commands
 
 ```bash
 # Storage overview
-kubectl get pvc,pv,sc -n capstone
+kubectl get pvc,pv,sc
 
 # PVC details and events
-kubectl describe pvc postgres-pvc -n capstone
+kubectl describe pvc postgres-pvc
 
 # Pod logs
-kubectl logs -n capstone deploy/api
-kubectl logs -n capstone deploy/postgres
+kubectl logs deploy/task-api --tail=50
+kubectl logs deploy/postgres --tail=50
+kubectl logs deploy/task-web --tail=50
 
 # Service connectivity
-kubectl get svc,endpoints -n capstone
+kubectl get svc,endpoints
 
 # RBAC configuration
-kubectl get sa,role,rolebinding -n capstone
-kubectl describe rolebinding readonly-binding -n capstone
+kubectl get sa,role,rolebinding
+kubectl describe rolebinding readonly-binding
+
+# Frontend to API connectivity test
+kubectl exec -it deploy/task-web -- wget -qO- http://task-api-service:8080/api/health
 
 # Recent events
-kubectl get events -n capstone --sort-by='.lastTimestamp'
+kubectl get events --sort-by='.lastTimestamp' | tail -20
 ```
 
 ---
@@ -343,28 +503,62 @@ kubectl get events -n capstone --sort-by='.lastTimestamp'
 See `troubleshooting.md` for detailed solutions to common issues:
 - PVC Pending (StorageClass missing)
 - API 500 errors (DB connection issues)
-- Ingress 404 (Service selector mismatch)
+- Frontend "Cannot connect to API" (Service discovery issues)
+- Port-forward "address already in use"
 - RBAC 403 (RoleBinding issues)
+
+**Quick frontend checks:**
+```bash
+# Is frontend running?
+kubectl get pods -l app=web
+
+# Can frontend reach API?
+kubectl exec -it deploy/task-web -- wget -qO- http://task-api-service:8080/api/tasks
+
+# Check nginx logs
+kubectl logs -l app=web --tail=30
+```
 
 ---
 
 ## What's Next (Day 5)
 
 Tomorrow we'll add:
-- **Observability**: Logs, metrics (`kubectl top`)
+- **Ingress**: Expose frontend with domain name (no more port-forward!)
+- **Observability**: Logs aggregation, metrics (`kubectl top`)
 - **Autoscaling**: HorizontalPodAutoscaler (HPA)
-- **Deployment strategies**: Rolling updates, zero-downtime
 
-The `resources` and `readinessProbe` we added to the API today will be crucial for autoscaling and safe deployments.
+The `resources` and `readinessProbe` we added today will be crucial for autoscaling.
+
+**Preview of Day 5:**
+```bash
+# Instead of:
+kubectl port-forward svc/task-web-service 8081:80
+
+# You'll access via:
+http://tasktracker.local  # Through Ingress!
+```
 
 ---
 
 ## Additional Resources
 
-- [Kubernetes Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
+### Official Kubernetes Docs
+- [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
 - [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes/)
 - [RBAC Authorization](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
-- [Minikube Storage](https://minikube.sigs.k8s.io/docs/handbook/persistent_volumes/)
+- [Services](https://kubernetes.io/docs/concepts/services-networking/service/)
 
-**API Source Code:** See `docs/api-source/` for Flask implementation details (optional reading)
+### KCNA Alignment
+- **Kubernetes Fundamentals (46%)**: Storage, Services, multi-tier apps
+- **Cloud Native Architecture (16%)**: Microservices, separation of concerns
+- **Container Orchestration (22%)**: StatefulSets concepts, self-healing
+
+### Source Code
+- **API Source**: `docs/api-source/` (Flask implementation)
+- **Frontend Source**: `docs/web-source/` (HTML/CSS/JS + nginx)
+
+### Detailed Lab Guides
+- **Frontend detailed guide**: `lab-frontend.md`
+- **Troubleshooting guide**: `troubleshooting.md`
