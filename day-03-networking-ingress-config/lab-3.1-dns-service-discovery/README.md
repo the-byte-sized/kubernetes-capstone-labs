@@ -152,7 +152,7 @@ api-service-abc123    IPv4          80      10.244.0.10,10.244.0.11      10m
 Detailed view:
 
 ```bash
-kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml | grep -A 5 endpoints:
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml | grep -A 5 addresses:
 ```
 
 **Expected:**
