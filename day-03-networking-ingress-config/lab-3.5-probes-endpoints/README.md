@@ -256,7 +256,7 @@ kubectl apply -f api-with-probes.yaml
 kubectl rollout status deployment api-deployment
 
 kubectl get pods -l app=api
-kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml | grep -A5 endpoints:
+kubectl get EndpointSlice -l kubernetes.io/service-name=api-service -o yaml | grep -A5 addresses:
 ```
 
 **Expected:**
