@@ -4,8 +4,6 @@ metadata:
   name: capstone-ingress
   labels:
     app: capstone
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   ingressClassName: nginx
   rules:
