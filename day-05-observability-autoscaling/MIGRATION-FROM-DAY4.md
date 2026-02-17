@@ -46,6 +46,30 @@ image: ghcr.io/the-byte-sized/task-api:v1.0.0
 
 ---
 
+## ⚠️ Note: File Numbering Changed
+
+**Day 5 manifests are renumbered** to accommodate HPA insertion and logical ordering:
+
+| Resource | Day 4 | Day 5 | Why Changed |
+|----------|-------|-------|-------------|
+| Secret | `01-secret-*` | `00-secret-*` | Secrets should be created first (00) |
+| PVC | `02-pvc-*` | `01-pvc-*` | Shifted down |
+| Postgres Deployment | `03-deployment-*` | `02-deployment-*` | Shifted down |
+| Postgres Service | `04-service-*` | `03-service-*` | Shifted down |
+| API Deployment | `05-deployment-*` | `04-deployment-*` | Shifted down |
+| API Service | `06-service-*` | `05-service-*` | Shifted down |
+| Web Deployment | `08-deployment-*` | `06-deployment-*` | Shifted down |
+| Web Service | `09-service-*` | `07-service-*` | Shifted down |
+| Ingress | `10-ingress.*` | `08-ingress.*` | Shifted down |
+| HPA | *(didn't exist)* | `09-hpa-*` | **NEW** in Day 5 |
+| RBAC | `07-rbac-*` | `10-rbac-*` | Moved to end |
+
+**Impact**: None functional (kubectl apply works regardless), but **file paths differ** between days.
+
+**Example**: Day 4's `05-deployment-api.yaml` is equivalent to Day 5's `04-deployment-api-v1.yaml`.
+
+---
+
 ## What Stayed the Same?
 
 ✅ **Unchanged resources** (can reuse from Day 4):
@@ -194,10 +218,10 @@ If you need to go back:
 # 1. Remove HPA
 kubectl delete hpa api-hpa
 
-# 2. Revert to Day 4 manifests
+# 2. Revert to Day 4 manifests (note different file numbers!)
 cd ../day-04-storage-security/
-kubectl apply -f manifests/05-deployment-api.yaml
-kubectl apply -f manifests/08-deployment-web.yaml
+kubectl apply -f manifests/05-deployment-api.yaml      # Day 4 numbering
+kubectl apply -f manifests/08-deployment-web.yaml     # Day 4 numbering
 
 # 3. Verify
 kubectl get pods
@@ -267,6 +291,9 @@ A: Yes, but defeats the purpose of Day 5 (controlled rollouts/rollbacks require 
 
 **Q: Do I need to retag images locally?**  
 A: Only if images are pulled from local minikube registry. If using GHCR, tags already exist.
+
+**Q: Why are file numbers different from Day 4?**  
+A: Day 5 renumbered files to start with `00-` for Secrets and accommodate new HPA resource. See "File Numbering Changed" section above.
 
 **Q: Can I skip Day 5 and go to Day 6?**  
 A: Not recommended. Day 6 may assume HPA and versioned images exist.
