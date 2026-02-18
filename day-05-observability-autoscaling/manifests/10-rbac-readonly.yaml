@@ -1,0 +1,28 @@
+# ServiceAccount for read-only access
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: readonly-sa
+---
+# Role defining read-only permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: readonly-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list"]
+---
+# RoleBinding connecting ServiceAccount to Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: readonly-binding
+subjects:
+- kind: ServiceAccount
+  name: readonly-sa
+roleRef:
+  kind: Role
+  name: readonly-role
+  apiGroup: rbac.authorization.k8s.io
